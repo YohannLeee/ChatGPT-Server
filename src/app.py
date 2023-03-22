@@ -7,6 +7,7 @@ import sys
 # print(sys.path)
 
 from settings import conf
+from utils.funcs import in_whitelist, build_anwser, run_command
 from utils.arguments import get_args
 from chat import Chatbot
 from imsg import Imsg, Message, send_imsg
@@ -29,29 +30,30 @@ def main():
         msgs = imsg.get_latest_msgs()
         for msg in msgs:
             msg_obj = Message(msg)
-            # 过滤msg格式
-            if not msg_obj.msg.startswith(conf.MSG_FILTER):
-                continue
             # 过滤安全名单
-            if msg_obj.is_group():
-                if not (msg_obj.chat_id in conf.ALLOW_GROUP_ID or msg_obj.group_name in conf.ALLOW_GROUP):
-                    log.warning(f"Group not in white list")
-                    log.debug(msg_obj.__str__())
-                    continue
+            if not in_whitelist(msg_obj):
+                continue
+
+            # 过滤msg格式
+            anwser = ""
+            if msg_obj.msg[:3] == conf.MSG_FILTER:
+                question = msg_obj.msg
+                sender = msg_obj.sender_address
+                try:
+                    anwser = chat.ask(
+                        prompt= question[3:], 
+                        convo_id=sender if args.multi_people else "default"
+                    )
+                except Exception as e:
+                    anwser = str(e)
+                # log.debug(f"{content=}")
+            elif msg_obj.msg[:3] == conf.CMD_FILTER:
+                anwser = run_command(msg_obj.msg[3:], chat, msg_obj)
             else:
-                if not msg_obj.sender_address in conf.ALLOW_USER:
-                    log.warning(f"User not in white list")
-                    log.debug(msg_obj.__str__())
-                    continue
-                
-            question = msg_obj.msg
-            sender = msg_obj.sender_address
-            anwser = chat.ask(
-                prompt= question[3:], 
-                convo_id=sender if args.multi_turn else "default"
-            )
-            content = f"{question}\n---------------------------------\nA: {anwser}"
-            send_imsg(msg_obj.chat_id, content, sender_address = msg_obj.sender_address, group_name = msg_obj.group_name)
+                continue
+            # content = f"{question}\n---------------------------------\nA: {anwser}"
+            content = build_anwser(msg_obj, anwser)
+            send_imsg(msg_obj.guid, content, sender_address = msg_obj.sender_address, group_name = msg_obj.group_name)
         time.sleep(3)
             
 
