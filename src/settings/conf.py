@@ -6,7 +6,7 @@ VERSION = "1.1"
 
 logging.basicConfig(
     # filename="/tmp/chat_imsg.log",
-    filemode='a',
+    # filemode='a',
     datefmt='%F %T',
     format= "%(asctime)s %(name)s %(funcName)s %(lineno)s %(levelname)s | %(message)s",
     level = logging.DEBUG
@@ -86,3 +86,10 @@ SEND_IMSG2 = """tell application "Messages"
 end tell
 """
 SEND_IMSG = SEND_IMSG2
+
+# Baidu Voice API Const
+APP_ID = 31348808
+APP_KEY = "yMA2OLjVXUotLGUDrdjhTjGv"
+DEV_PID = 15372
+URI = "ws://vop.baidu.com/realtime_asr"
+HOST_MAC = "0A-00-27-00-00-10"
