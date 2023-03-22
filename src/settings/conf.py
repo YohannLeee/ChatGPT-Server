@@ -115,3 +115,7 @@ HELP_MSG = """ChatGPT iMessage bot
 
 # ChatGPT config file
 ChatGPT_CONF_FP = "/var/tmp/chatgpt-imsg.json"
+
+
+# Server info
+SERVER_PORT = 8001

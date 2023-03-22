@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+import argparse
+import asyncio
 import time
 import logging
 import sys
@@ -8,24 +10,16 @@ import sys
 
 from settings import conf
 from library.arguments import get_args
-from AIGC.ChatGPT import Chatbot
+from AIGC import get_chat_bot, Chatbot
 from iMessage.imsg import Imsg, Message, send_imsg
 from iMessage.utils import in_whitelist, build_anwser, run_command
+from server.AIGCServer import run_server
 
 log = logging.getLogger('app')
 
 
-def main():
-    log.info(f"Running chatGPT + iMessage, version: {conf.VERSION}")
-    args = get_args(sys.argv[1:])
+def sync_imsg(chat: Chatbot, args: argparse.Namespace):
     imsg = Imsg()
-    chat = Chatbot(
-        api_key= args.api_key,
-        proxy= args.proxy,
-        stream = args.stream,
-        temperature=args.temperature
-    )
-    # chat.load_test()
     while True:
         msgs = imsg.get_latest_msgs()
         for msg in msgs:
@@ -57,6 +51,24 @@ def main():
             content = build_anwser(msg_obj, anwser)
             send_imsg(msg_obj.guid, content, sender_address = msg_obj.sender_address, group_name = msg_obj.group_name)
         time.sleep(3)
+
+
+def main():
+    log.info(f"Running chatGPT + iMessage, version: {conf.VERSION}")
+    args = get_args(sys.argv[1:])
+    Chatbot = get_chat_bot(name= args.bot)
+    chat = Chatbot(
+        api_key= args.api_key,
+        proxy= args.proxy,
+        stream = args.stream,
+        temperature=args.temperature
+    )
+    # chat.load_test()
+    if args.imsg:
+        sync_imsg(chat= chat, args = args)
+    else:
+        log.info("Running FastAPI server")
+        run_server()
             
 
 

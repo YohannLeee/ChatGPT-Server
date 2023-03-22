@@ -346,6 +346,8 @@ class Chatbot:
         """
         Load the Chatbot configuration from a JSON file
         """
+        if not pathlib.Path(file).exists():
+            return 
         with open(file, encoding="utf-8") as f:
             # load json, if session is in keys, load proxies
             loaded_config = json.load(f)
