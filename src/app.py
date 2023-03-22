@@ -7,10 +7,10 @@ import sys
 # print(sys.path)
 
 from settings import conf
-from utils.funcs import in_whitelist, build_anwser, run_command
-from utils.arguments import get_args
-from chat import Chatbot
-from imsg import Imsg, Message, send_imsg
+from library.arguments import get_args
+from AIGC.ChatGPT import Chatbot
+from iMessage.imsg import Imsg, Message, send_imsg
+from iMessage.utils import in_whitelist, build_anwser, run_command
 
 log = logging.getLogger('app')
 
@@ -23,9 +23,9 @@ def main():
         api_key= args.api_key,
         proxy= args.proxy,
         stream = args.stream,
-        use_history=args.use_history,
         temperature=args.temperature
     )
+    # chat.load_test()
     while True:
         msgs = imsg.get_latest_msgs()
         for msg in msgs:
@@ -52,6 +52,8 @@ def main():
             else:
                 continue
             # content = f"{question}\n---------------------------------\nA: {anwser}"
+            if not anwser:
+                continue
             content = build_anwser(msg_obj, anwser)
             send_imsg(msg_obj.guid, content, sender_address = msg_obj.sender_address, group_name = msg_obj.group_name)
         time.sleep(3)

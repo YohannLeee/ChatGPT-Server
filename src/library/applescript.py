@@ -1,9 +1,9 @@
-import pathlib
 import subprocess
-import sys
-sys.path.append(
-    pathlib.Path(__file__).parent.parent.as_posix()
-)
+# import pathlib
+# import sys
+# sys.path.append(
+#     pathlib.Path(__file__).parent.parent.as_posix()
+# )
 
 TEMPFP = '/tmp/imsg.scpt'
 

@@ -1,14 +1,19 @@
 import json
-import os
-from typing import Dict, Text, Tuple
 import logging
+import os
+import sys
+import pathlib
+sys.path.append(
+    pathlib.Path(__file__).parent.parent.as_posix()
+)
+from typing import Dict, Generator, Text, Tuple
 
 import openai
 import requests
 import tiktoken
 
+from library.utils import get_filtered_keys_from_object
 from settings import conf
-from utils.funcs import get_filtered_keys_from_object
 
 # openai.api_key = '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'
 log = logging.getLogger("app.chat")
@@ -31,7 +36,7 @@ def chat(msg: Text, user: Text = "KV") -> Dict:
         **body
     )
 
-    return res
+    return res # type: ignore
 
 
 def get_content(res: Dict) -> Text:
@@ -46,15 +51,15 @@ def get_usage(res: Dict) -> Tuple:
     return res["usage"]['prompt_tokens'], res["usage"]['completion_tokens'], res['usage']['total_tokens']
 
 
-    
+
 class ChatResponse:
     def __init__(self, res: Dict):
         self.res = res
-        
+
     @property
     def content(self):
         return self.res['choices'][0]['message']['content']
-    
+
     @property
     def usage(self):
         return self.res["usage"]['prompt_tokens'], self.res["usage"]['completion_tokens'], self.res['usage']['total_tokens']
@@ -70,7 +75,7 @@ class Chatbot:
         self,
         api_key: str,
         engine: str = os.environ.get("GPT_ENGINE") or "gpt-3.5-turbo",
-        proxy: str = None,
+        proxy: str = '',
         max_tokens: int = 3000,
         temperature: float = 0.5,
         top_p: float = 1.0,
@@ -79,7 +84,6 @@ class Chatbot:
         reply_count: int = 1,
         system_prompt: str = "You are ChatGPT, a large language model trained by OpenAI. Respond conversationally",
         stream: bool = False,
-        use_history: bool = False
     ) -> None:
         """
         Initialize Chatbot with API key (from https://platform.openai.com/account/api-keys)
@@ -95,27 +99,20 @@ class Chatbot:
         self.frequency_penalty = frequency_penalty
         self.reply_count = reply_count
         self.stream = stream
-        self.use_history = use_history
 
         if proxy:
             self.session.proxies = {
                 "http": proxy,
                 "https": proxy,
             }
-
-        self.conversation: dict = {
-            "default": [
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-            ],
-        }
+        self.conversation = {}
+        self.new_user()
         if max_tokens > 4000:
             raise Exception("Max tokens cannot be greater than 4000")
 
         if self.get_token_count("default") > self.max_tokens:
             raise Exception("System prompt is too long")
+        self.load(conf.ChatGPT_CONF_FP)
 
     def add_to_conversation(
         self,
@@ -126,10 +123,10 @@ class Chatbot:
         """
         Add a message to the conversation
         """
-        if not self.use_history:
-            self.conversation[convo_id] = [{"role": role, "content": message}]
-        else:
-            self.conversation[convo_id].append({"role": role, "content": message})
+        if not self.conversation[convo_id]['use_history']:
+            self.reset(convo_id)
+            # self.conversation[convo_id]['history'] = [dict(role= role, content= message)]
+        self.conversation[convo_id]['history'].append(dict(role= role, content= message))
 
     def __truncate_conversation(self, convo_id: str = "default") -> None:
         """
@@ -138,10 +135,10 @@ class Chatbot:
         while True:
             if (
                 self.get_token_count(convo_id) > self.max_tokens
-                and len(self.conversation[convo_id]) > 1
+                and len(self.conversation[convo_id]['history']) > 1
             ):
                 # Don't remove the first message
-                self.conversation[convo_id].pop(1)
+                self.conversation[convo_id]['history'].pop(1)
             else:
                 break
 
@@ -156,7 +153,7 @@ class Chatbot:
         encoding = tiktoken.encoding_for_model(self.engine)
 
         num_tokens = 0
-        for message in self.conversation[convo_id]:
+        for message in self.conversation[convo_id]['history']:
             # every message follows <im_start>{role/name}\n{content}<im_end>\n
             num_tokens += 4
             for key, value in message.items():
@@ -178,19 +175,19 @@ class Chatbot:
         role: str = "user",
         convo_id: str = "default",
         **kwargs,
-    ) -> str:
+    ) -> Generator:
         """
         Ask a question
         """
         # Make conversation if it doesn't exist
         if convo_id not in self.conversation:
-            self.reset(convo_id=convo_id, system_prompt=self.system_prompt)
+            self.new_user(convo_id=convo_id, system_prompt=self.system_prompt)
         self.add_to_conversation(prompt, "user", convo_id=convo_id)
         _stream = kwargs.get('stream', True)
         self.__truncate_conversation(convo_id=convo_id)
         payload = {
                 "model": self.engine,
-                "messages": self.conversation[convo_id],
+                "messages": self.conversation[convo_id]['history'],
                 "stream": _stream,
                 # kwargs
                 "temperature": kwargs.get("temperature", self.temperature),
@@ -220,8 +217,9 @@ class Chatbot:
                 f"Error: {response.status_code} {response.reason} {response.text}",
             )
         if _stream:
-            response_role: str = None
+            response_role: str = ''
             full_response: str = ""
+            # log.debug(f"{response.text=}")
             for line in response.iter_lines():
                 if not line:
                     continue
@@ -230,7 +228,7 @@ class Chatbot:
                 if line == "[DONE]":
                     break
                 resp: dict = json.loads(line)
-                choices = resp.get("choices")
+                choices = resp.get("choices") # type: ignore
                 if not choices:
                     continue
                 delta = choices[0].get("delta")
@@ -242,6 +240,7 @@ class Chatbot:
                     content = delta["content"]
                     full_response += content
                     yield content
+            # log.debug(f"{response.text=}")
         else:
             resp: dict = json.loads(response.content)
             # TODO save usage info
@@ -249,8 +248,9 @@ class Chatbot:
             choices: dict = resp['choices'][0]
             response_role = choices['message']['role']
             full_response = choices['message']['content'].strip()
+            self.calculate_token(convo_id=convo_id, usage= usage)
 
-        if self.use_history:
+        if self.conversation[convo_id]['use_history']:
             self.add_to_conversation(full_response, response_role, convo_id=convo_id)
         if not _stream:
             yield full_response
@@ -281,53 +281,107 @@ class Chatbot:
         Rollback the conversation
         """
         for _ in range(n):
-            self.conversation[convo_id].pop()
+            self.conversation[convo_id]['history'].pop()
 
-    def reset(self, convo_id: str = "default", system_prompt: str = None) -> None:
+    def reset(self, convo_id: str = "default", system_prompt: str = '') -> None:
         """
         Reset the conversation
         """
-        self.conversation[convo_id] = [
-            {"role": "system", "content": system_prompt or self.system_prompt},
-        ]
+        if self.conversation.get(convo_id):
+            self.conversation[convo_id]['history'] = [
+                {"role": "system", "content": system_prompt or self.system_prompt},
+            ]
+        else:
+            self.new_user(convo_id)
+
+    def new_user(self, convo_id: str = 'default', system_prompt: str = "") -> dict:
+        """
+        Open new session for new user
+        """
+        log.debug(f"Creating new user {convo_id}, {system_prompt}")
+        self.conversation[convo_id] = {
+            'history': [{'role': 'system', 'content': system_prompt or self.system_prompt}],
+            'use_history': False,
+            'token_tt': 0,
+            'token_ask': 0,
+            'token_anwser': 0
+        }
+        return self.conversation
+
+    def calculate_token(self, convo_id: str, usage: dict) -> None:
+        """Calculate token costs, only for stream = False
+
+        Args:
+            convo_id (str): sender address
+            usage (dict): {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0}
+        """
+        self.conversation[convo_id]['token_ask'] += usage['prompt_tokens']
+        self.conversation[convo_id]['token_anwser'] += usage['completion_tokens']
+        self.conversation[convo_id]['token_tt'] += usage['total_tokens']
+    
+    def token_usage(self, convo_id: str) -> str:
+        return f"{self.conversation[convo_id]['token_tt']}"
 
     def save(self, file: str, *keys: str) -> None:
         """
         Save the Chatbot configuration to a JSON file
         """
+        all_obj = {
+            key: self.__dict__[key]
+            for key in get_filtered_keys_from_object(self, *keys)
+        }
+        # if 'session' in all_obj:
+        #     all_obj['session'] = all_obj['session'].proxies
+        # log.debug(f"{json.dumps(all_obj, default=lambda o: str(o))=}")
         with open(file, "w", encoding="utf-8") as f:
             json.dump(
-                {
-                    key: self.__dict__[key]
-                    for key in get_filtered_keys_from_object(self, *keys)
-                },
+                all_obj,
                 f,
                 indent=2,
                 # saves session.proxies dict as session
                 default=lambda o: o.__dict__["proxies"],
             )
 
-    def load(self, file: str, *keys: str) -> None:
+    def load(self, file: str, *_keys: str) -> None:
         """
         Load the Chatbot configuration from a JSON file
         """
         with open(file, encoding="utf-8") as f:
             # load json, if session is in keys, load proxies
             loaded_config = json.load(f)
-            keys = get_filtered_keys_from_object(self, *keys)
+            keys = get_filtered_keys_from_object(self, *_keys)
 
             if "session" in keys and loaded_config["session"]:
                 self.session.proxies = loaded_config["session"]
             keys = keys - {"session"}
             self.__dict__.update({key: loaded_config[key] for key in keys})
+
+    def load_test(self, *keys) -> None:
+        """
+        test
+        """
+        # r = get_filtered_keys_from_object(self, *keys)
+        log.debug(self.conversation['default']['history'])
+
+    def __del__(self) -> None:
+        self.save(conf.ChatGPT_CONF_FP)
             
             
 if __name__ == '__main__':
     chat_ = Chatbot(
-        api_key='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',
-        use_history=True,
+        api_key='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',
+        stream=True
     )
-    res = chat_.ask("你好，我叫刘培强")
-    log.debug(f"{res=}")
-    res = chat_.ask("你好，我叫什么名字？")
-    log.debug(f"{res=}")
+    chat_.load_test()
+    # chat_.conversation['default'].use_history = True
+    res = chat_.ask_stream("你好，我叫刘培强")
+    print(type(res), res)
+    for _s in res:
+        sys.stdout.write(_s)
+        print()
+    # log.debug(f"{res=}")
+    res = chat_.ask_stream("你好，我叫什么名字？")
+    # log.debug(f"{res=}")
+    for _s in res:
+        sys.stdout.write(_s)
+        print()

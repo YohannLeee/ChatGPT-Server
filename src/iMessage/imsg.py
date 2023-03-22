@@ -3,13 +3,13 @@ import sqlite3
 import pathlib
 import typing
 import logging
-import sys
-sys.path.append(
-    pathlib.Path(__file__).parent.parent.as_posix()
-)
+# import sys
+# sys.path.append(
+#     pathlib.Path(__file__).parent.parent.as_posix()
+# )
 
 from settings import conf
-from utils import applescript
+from library import applescript
 
 log = logging.getLogger('app.imsg')
 
@@ -56,6 +56,7 @@ class Message:
     def is_group(self) -> bool:
         if self.group_name:
             return True
+        return False
         
     def __str__(self) -> str:
         return f"{self.group_name}|{self.chat_id}|{self.sender_address}|{self.msg}"

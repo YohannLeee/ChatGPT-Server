@@ -15,10 +15,10 @@ import logging
 import time
 import uuid
 import wave
-import sys
 from typing import ByteString, Text, Generator
-import pathlib
-sys.path.append(pathlib.Path(__file__).parent.parent.as_posix())
+# import sys
+# import pathlib
+# sys.path.append(pathlib.Path(__file__).parent.parent.as_posix())
 
 import websocket
 

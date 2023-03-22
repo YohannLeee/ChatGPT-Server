@@ -2,7 +2,7 @@ import logging
 import re
 
 # Version
-VERSION = "1.1"
+VERSION = "1.2"
 
 logging.basicConfig(
     # filename="/tmp/chat_imsg.log",
@@ -93,3 +93,25 @@ APP_KEY = "yMA2OLjVXUotLGUDrdjhTjGv"
 DEV_PID = 15372
 URI = "ws://vop.baidu.com/realtime_asr"
 HOST_MAC = "0A-00-27-00-00-10"
+
+# Help msg
+HELP_MSG = """ChatGPT iMessage bot
+使用方法: 
+    提问方式 'Q: '+'你的问题'(Q+冒号+英文空格+问题)
+    例如 'Q: 请帮我写一段C函数，要求传入一个数组完成自动排序，可以通过参数控制升序或降序'
+
+    命令 'C: '+'命令'(C+冒号+英文空格+命令)
+        help, 显示帮助信息
+        test, 测试程序是否存活
+        token, 获取已使用的token数量
+        enable_history, eh, 允许bot读取历史记录
+        disable_history, dh, 禁止bot读取历史记录
+        reset, 开启enable_history后使用该命令可以清空机器人记录的聊天记录
+    例如 'C: reset'
+
+注意: 
+1）语句开头Q: 要用!!!英文空格!!!
+2）机器人当前采用的是识别用户聊天+单轮聊天模式，即bot读取每个用户的下一个问题时不会有上一个问题的记忆，要开启多轮聊天需输入命令'C: enable_history'"""
+
+# ChatGPT config file
+ChatGPT_CONF_FP = "/var/tmp/chatgpt-imsg.json"

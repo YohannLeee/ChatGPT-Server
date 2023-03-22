@@ -1,34 +1,13 @@
+from typing import Text
 import logging
-from typing import Set, Text
-import re
 
-from imsg import Message
+
+from iMessage.imsg import Message
+from AIGC.ChatGPT import Chatbot
 from settings import conf
-# from chat import Chatbot
 
-log = logging.getLogger("app.funcs")
 
-def get_filtered_keys_from_object(obj: object, *keys: str) -> Set[str]:
-    """
-    Get filtered list of object variable names.
-    :param keys: List of keys to include. If the first key is "not", the remaining keys will be removed from the class keys.
-    :return: List of class keys.
-    """
-    class_keys = obj.__dict__.keys()
-    log.debug(f"{class_keys=}")
-    if not keys:
-        return class_keys
-
-    # Remove the passed keys from the class keys.
-    if keys[0] == "not":
-        return {key for key in class_keys if key not in keys[1:]}
-    # Check if all passed keys are valid
-    if invalid_keys := set(keys) - class_keys:
-        raise ValueError(
-            f"Invalid keys: {invalid_keys}",
-        )
-    # Only return specified keys that are in class_keys
-    return {key for key in keys if key in class_keys}
+log = logging.getLogger('imsg.utils')
 
 
 def in_whitelist(msg: Message) -> bool:
@@ -96,14 +75,14 @@ def get_sender_name(imsg_addr: Text) -> Text:
     """
     if '@' in imsg_addr:
         sender_name = imsg_addr.split('@')[0]
-        sender_name = sender_name.lstrip('imsg-')
+        sender_name = sender_name.replace('imsg-', '')
         sender_name = sender_name.split('.')[0]
     else:
         sender_name = imsg_addr
     return sender_name
 
 
-def run_command(cmd: Text, chat, msg: Message) -> Text:
+def run_command(cmd: Text, chat: Chatbot, msg: Message) -> Text:
     """Run command if received 'C: *'
 
     Args:
@@ -112,13 +91,37 @@ def run_command(cmd: Text, chat, msg: Message) -> Text:
     Returns:
         Text: feedback
     """
+    cmd = cmd.strip().lower()
     if not cmd:
         log.debug(f"Empty command")
-        return 
-    if conf.RESET_PATTERN.search(cmd):
-        system_prompt = conf.RESET_PATTERN.search(cmd).group(1)
-        chat.reset(convo_id=msg.sender_address, system_prompt=system_prompt or chat.system_prompt)
-        return f"Chat reseted{' to '+system_prompt if system_prompt else ''}"
-    if cmd == 'test':
-        return "Yeah, I'm still here"
-
+        return ""
+    match cmd.split():
+        case ['help']:
+            return conf.HELP_MSG
+        case ['test']:
+            return "Yeah, I'm still here"
+        case ['enable_history'] | ['eh']:
+            # 如果没有该用户的session，新建一个
+            if msg.sender_address not in chat.conversation:
+                chat.new_user(msg.sender_address)
+            chat.conversation[msg.sender_address].use_history = True
+            return "Done"
+        case ['disable_history'] | ['dh']:
+            # 如果没有该用户的session，新建一个
+            if msg.sender_address not in chat.conversation:
+                chat.new_user(msg.sender_address)
+            chat.conversation[msg.sender_address].use_history = False
+            return "Done"
+        case ['reset', *prompt]:
+            chat.reset(convo_id=msg.sender_address, system_prompt= ' '.join(prompt) if prompt else '')
+            return "Chat reseted"
+        case ['token', *name]:
+            if name and name[0] == 'all':
+                result = '\n'.join([f"{get_sender_name(convo_id)}: {chat.token_usage(convo_id)}" for convo_id in chat.conversation])
+                result = f"以下是token使用统计信息\n{result}"
+            else:
+                result = f"您已使用token {chat.token_usage(msg.sender_address)}"
+            return result
+        case _:
+            return f"Wrong command\n{conf.HELP_MSG}"
+    # return ""
