@@ -1,5 +1,6 @@
 import logging
 import re
+import pathlib
 
 # Version
 VERSION = "1.2"
@@ -11,9 +12,11 @@ logging.basicConfig(
     format= "%(asctime)s %(name)s %(funcName)s %(lineno)s %(levelname)s | %(message)s",
     level = logging.DEBUG
 )
-# chat model
-model_turbo = 'gpt-3.5-turbo'
-model_0301 = 'gpt-3.5-turbo-0301'
+
+prog_name = 'AIGCSrv'
+conf_dir: pathlib.Path = pathlib.Path('~').expanduser() / f'.{prog_name}'
+conf_fp: pathlib.Path = conf_dir / 'AIGC.yaml'
+default_conf_fp: pathlib.Path = pathlib.Path(__file__).parent / 'AIGC.yaml'
 
 # imsg db
 IMSG_DB_FP = '~/Library/Messages/chat.db'
@@ -52,25 +55,6 @@ GET_LATEST_DATE = "SELECT date FROM message ORDER BY rowid DESC LIMIT 1;"
 MSG_FILTER = "Q: "
 CMD_FILTER = "C: "
 RESET_PATTERN = re.compile("reset ?(.*)?", flags=re.I)
-
-
-# Allow user and group name
-# limit 99 
-ALLOW_USER_ = ["yohannlee@icloud.com", "kevinnn.wang@luxshare-icgt.com", "bruce.huang@luxshare-ict.com", "+8613564869282", "grace.su@luxshare-ict.com"]
-ALLOW_USER = dict(zip(
-    ALLOW_USER_,
-    range(1, 100)
-))
-ALLOW_GROUP_ = []
-ALLOW_GROUP = dict(zip(
-    ALLOW_GROUP_,
-    range(1, 100)
-))
-ALLOW_GROUP_ID_ = ["chat820181500141257725", "chat28234882383587646"]
-ALLOW_GROUP_ID = dict(zip(
-    ALLOW_GROUP_ID_,
-    range(1, 100)
-))
 
 # AppleScript cmd
 SEND_IMSG1 = """tell application "Messages"
@@ -113,9 +97,30 @@ HELP_MSG = """ChatGPT iMessage bot
 1）语句开头Q: 要用!!!英文空格!!!
 2）机器人当前采用的是识别用户聊天+单轮聊天模式，即bot读取每个用户的下一个问题时不会有上一个问题的记忆，要开启多轮聊天需输入命令'C: enable_history'"""
 
-# ChatGPT config file
-ChatGPT_CONF_FP = "/var/tmp/chatgpt-imsg.json"
+# 创建数据库表
+DATALIST_TABLE = """CREATE TABLE IF NOT EXISTS data_list (
+    content TEXT,
+    nonce TEXT,
+    timestamp TEXT,
+    recvd_cont_dict TEXT,
+    receiveid TEXT,
+    msgid TEXT
+);
+"""
+TRIGGER_TABLE = """CREATE TABLE IF NOT EXISTS consumed_data (
+    content TEXT,
+    nonce TEXT,
+    timestamp TEXT,
+    recvd_cont_dict TEXT,
+    receiveid TEXT,
+    msgid TEXT,
+    event_time TEXT
+);
+"""
 
-
-# Server info
-SERVER_PORT = 8001
+TRIGGER = """CREATE TRIGGER IF NOT EXISTS "record_consumed_data" AFTER DELETE
+ON data_list
+BEGIN
+    insert into consumed_data(content, nonce, timestamp, recvd_cont_dict, receiveid, msgid, event_time) VALUES (OLD.content, OLD.nonce, OLD.timestamp, OLD.recvd_cont_dict, OLD.receiveid, OLD.msgid, datetime('now', 'localtime'));
+END;
+"""

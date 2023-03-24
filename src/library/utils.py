@@ -1,7 +1,14 @@
 import logging
+import pathlib
 from typing import Set
+import yaml
 
 # from chat import Chatbot
+# import pathlib
+# sys.path.append(
+#     pathlib.Path(__file__).parent.parent.as_posix()
+# )
+from settings import conf
 
 log = logging.getLogger("app.funcs")
 
@@ -28,5 +35,28 @@ def get_filtered_keys_from_object(obj: object, *keys: str) -> Set[str]:
     return {key for key in keys if key in class_keys}
 
 
+def parse_config_file(fp: pathlib.Path) -> dict:
+    if not fp.exists():
+        fp.parent.mkdir(parents= True, exist_ok= True)
+        fp.write_bytes(conf.default_conf_fp.read_bytes())
+    _conf = yaml.load(fp.read_text(encoding='utf-8'), yaml.FullLoader)
+    log.debug(f"{_conf=}")
+    if not _conf.get('enable'):
+        log.error(f"配置文件未启用, 请将配置文件中的 enable 设为 true: {fp.as_posix()}")
+        raise Exception(f'配置文件未启用, 请将配置文件中的 enable 设为 true: {fp.as_posix()}')
+    return _conf
+
+class CFG:
+    C = {}
+    def __new__(cls, fp = conf.conf_fp):
+        if not cls.C:
+            cls.C = parse_config_file(fp)
+        return cls
+
+def main():
+    parse_config_file(conf.conf_fp)
+    pass
 
 
+if __name__ == '__main__':
+    main()

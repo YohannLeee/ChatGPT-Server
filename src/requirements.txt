@@ -1,6 +1,11 @@
+aiohttp==3.8.4
+fastapi==0.95.0
 openai==0.27.2
-pyaudio==0.2.13
+PyAudio==0.2.13
+pycryptodome==3.17
 pyttsx3==2.90
+PyYAML==6.0
 requests==2.28.2
 tiktoken==0.3.2
+uvicorn==0.21.1
 websocket_client==1.5.1

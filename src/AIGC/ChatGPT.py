@@ -12,45 +12,11 @@ import openai
 import requests
 import tiktoken
 
-from library.utils import get_filtered_keys_from_object
+from library.utils import get_filtered_keys_from_object, CFG
 from settings import conf
 
 # openai.api_key = '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'
 log = logging.getLogger("app.chat")
-
-def chat(msg: Text, user: Text = "KV") -> Dict:
-    """
-    Chat with 
-    """
-    body = {
-        'model': conf.model_turbo,
-        'messages': [
-            {
-                'role': 'user', 
-                'content': msg
-            }
-        ],
-        'top_p': 0.1
-    }
-    res = openai.ChatCompletion.create(
-        **body
-    )
-
-    return res # type: ignore
-
-
-def get_content(res: Dict) -> Text:
-    return res['choices'][0]['message']['content']
-
-
-def get_usage(res: Dict) -> Tuple:
-    """
-    获取token 耗费信息
-    return (input, output, total)
-    """
-    return res["usage"]['prompt_tokens'], res["usage"]['completion_tokens'], res['usage']['total_tokens']
-
-
 
 class ChatResponse:
     def __init__(self, res: Dict):
@@ -88,6 +54,8 @@ class Chatbot:
         """
         Initialize Chatbot with API key (from https://platform.openai.com/account/api-keys)
         """
+        self.load(CFG.C['ChatGPT']['CONF_FP'])
+
         self.engine = engine
         self.session = requests.Session()
         self.api_key = api_key
@@ -112,7 +80,6 @@ class Chatbot:
 
         if self.get_token_count("default") > self.max_tokens:
             raise Exception("System prompt is too long")
-        self.load(conf.ChatGPT_CONF_FP)
 
     def add_to_conversation(
         self,
@@ -348,6 +315,7 @@ class Chatbot:
         """
         if not pathlib.Path(file).exists():
             return 
+        
         with open(file, encoding="utf-8") as f:
             # load json, if session is in keys, load proxies
             loaded_config = json.load(f)
@@ -366,7 +334,7 @@ class Chatbot:
         log.debug(self.conversation['default']['history'])
 
     def __del__(self) -> None:
-        self.save(conf.ChatGPT_CONF_FP)
+        self.save(CFG.C['ChatGPT']['CONF_FP'])
             
             
 if __name__ == '__main__':

@@ -24,6 +24,7 @@ import websocket
 
 from settings.conf import APP_ID, APP_KEY, DEV_PID, HOST_MAC, URI
 
+
 logger = logging.getLogger()
 
 def send_start_params(ws):

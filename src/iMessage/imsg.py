@@ -14,7 +14,7 @@ from library import applescript
 log = logging.getLogger('app.imsg')
 
 class Imsg:
-    def __init__(self) -> None:
+    def __init__(self, **kwargs) -> None:
         self.db = sqlite3.connect(pathlib.Path(conf.IMSG_DB_FP).expanduser().as_posix())
         self.cur = self.db.cursor()
         self.cur_time = 0

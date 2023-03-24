@@ -1,0 +1,39 @@
+# Set to true, if this config file is using
+enable: true
+
+imsg:
+ allow:
+  user: 
+   {}
+
+  group: 
+   {}
+ 
+  group_id:
+   {}
+
+# Server info
+SERVER:
+ PORT: 8001
+ IP: '' # server local area ip, listening ip
+
+# WeCom info
+WeCom:
+ Token: 
+ EncodingAESKey: 
+ CorpID: 
+ Secret: 
+ URL_ACCTK:  # 获取access_token url
+
+ChatGPT:
+ MODEL_TURBO: gpt-3.5-turbo
+ MODEL_TURBO_0301: gpt-3.5-turbo-0301
+ CONF_FP: /var/tmp/chatgpt-imsg.json
+
+# Baidu api
+Baidu:
+ APP_ID: 
+ APP_KEY: 
+ DEV_PID: 
+ URI: 
+ HOST_MAC: 
