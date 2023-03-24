@@ -5,6 +5,7 @@ import logging
 from iMessage.imsg import Message
 from AIGC.ChatGPT import Chatbot
 from settings import conf
+from library.utils import add_user, rm_user, CFG
 
 log = logging.getLogger('imsg.utils')
 
@@ -104,13 +105,13 @@ def run_command(cmd: Text, chat: Chatbot, msg: Message) -> Text:
             # 如果没有该用户的session，新建一个
             if msg.sender_address not in chat.conversation:
                 chat.new_user(msg.sender_address)
-            chat.conversation[msg.sender_address].use_history = True
+            chat.conversation[msg.sender_address]['use_history'] = True
             return "Done"
         case ['disable_history'] | ['dh']:
             # 如果没有该用户的session，新建一个
             if msg.sender_address not in chat.conversation:
                 chat.new_user(msg.sender_address)
-            chat.conversation[msg.sender_address].use_history = False
+            chat.conversation[msg.sender_address]['use_history'] = False
             return "Done"
         case ['reset', *prompt]:
             chat.reset(convo_id=msg.sender_address, system_prompt= ' '.join(prompt) if prompt else '')
@@ -122,6 +123,22 @@ def run_command(cmd: Text, chat: Chatbot, msg: Message) -> Text:
             else:
                 result = f"您已使用token {chat.token_usage(msg.sender_address)}"
             return result
+        case ['add_user', *users]:
+            if not users:
+                return "请提供要添加的users"
+            r = add_user(users)
+            _users = '\n'.join(r)
+            return f"Done, 当前users: {_users}"
+        case ['rm_user', *users]:
+            if not users:
+                return "请提供要删除的users"
+            error, r = rm_user(users)
+            if error:
+                return r
+            _users = '\n'.join(r)
+            return f"Done, 当前users: {_users}"
+        case ['user', *_]:
+            return '\n'.join(CFG.C['imsg']['allow']['user'])
         case _:
             return f"Wrong command\n{conf.HELP_MSG}"
     # return ""
