@@ -12,45 +12,11 @@ import openai
 import requests
 import tiktoken
 
-from library.utils import get_filtered_keys_from_object
+from library.utils import get_filtered_keys_from_object, CFG
 from settings import conf
 
 # openai.api_key = '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'
 log = logging.getLogger("app.chat")
-
-def chat(msg: Text, user: Text = "KV") -> Dict:
-    """
-    Chat with 
-    """
-    body = {
-        'model': conf.model_turbo,
-        'messages': [
-            {
-                'role': 'user', 
-                'content': msg
-            }
-        ],
-        'top_p': 0.1
-    }
-    res = openai.ChatCompletion.create(
-        **body
-    )
-
-    return res # type: ignore
-
-
-def get_content(res: Dict) -> Text:
-    return res['choices'][0]['message']['content']
-
-
-def get_usage(res: Dict) -> Tuple:
-    """
-    获取token 耗费信息
-    return (input, output, total)
-    """
-    return res["usage"]['prompt_tokens'], res["usage"]['completion_tokens'], res['usage']['total_tokens']
-
-
 
 class ChatResponse:
     def __init__(self, res: Dict):
@@ -88,6 +54,9 @@ class Chatbot:
         """
         Initialize Chatbot with API key (from https://platform.openai.com/account/api-keys)
         """
+        if not api_key:
+            api_key = CFG.C['ChatGPT']['API_KEY']
+
         self.engine = engine
         self.session = requests.Session()
         self.api_key = api_key
@@ -100,11 +69,15 @@ class Chatbot:
         self.reply_count = reply_count
         self.stream = stream
 
+        if not proxy:
+            proxy = CFG.C['ChatGPT']['PROXY']
+
         if proxy:
             self.session.proxies = {
                 "http": proxy,
                 "https": proxy,
             }
+            log.debug(f"Proxy: {self.session.proxies}")
         self.conversation = {}
         self.new_user()
         if max_tokens > 4000:
@@ -112,7 +85,7 @@ class Chatbot:
 
         if self.get_token_count("default") > self.max_tokens:
             raise Exception("System prompt is too long")
-        self.load(conf.ChatGPT_CONF_FP)
+        self.load(CFG.C['ChatGPT']['CONF_FP'], 'not', 'api_key')
 
     def add_to_conversation(
         self,
@@ -206,16 +179,35 @@ class Chatbot:
             }
         log.debug(f"Request payload: {payload}")
         # Get response
-        response = self.session.post(
-            os.environ.get("API_URL") or "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {kwargs.get('api_key', self.api_key)}"},
-            json= payload,
-            stream = _stream,
-        )
-        if response.status_code != 200:
-            raise Exception(
+        try_index = 0
+        while try_index < 3:
+            try:
+                response = self.session.post(
+                    os.environ.get("API_URL") or "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {kwargs.get('api_key', self.api_key)}"},
+                    json= payload,
+                    stream = _stream,
+                    verify = False,
+                )
+                break
+            except requests.exceptions.ProxyError as e:
+                log.exception(e)
+                log.info(f"Proxy: {self.session.proxies}")
+            finally:
+                try_index += 1
+                if try_index == 3:
+                    return f"Error: {e}"
+
+        match response.status_code:
+            case 401:
+                raise Exception(f"Error: {response.status_code} {response.reason} {response.text}\n API_KEY: {kwargs.get('api_key', self.api_key)}")
+            case 200:
+                pass
+            case _:
+               raise Exception(
                 f"Error: {response.status_code} {response.reason} {response.text}",
-            )
+            ) 
+            
         if _stream:
             response_role: str = ''
             full_response: str = ""
@@ -348,10 +340,12 @@ class Chatbot:
         """
         if not pathlib.Path(file).exists():
             return 
+        
         with open(file, encoding="utf-8") as f:
             # load json, if session is in keys, load proxies
             loaded_config = json.load(f)
             keys = get_filtered_keys_from_object(self, *_keys)
+            log.debug(f"Filtered keys: {keys}")
 
             if "session" in keys and loaded_config["session"]:
                 self.session.proxies = loaded_config["session"]
@@ -366,7 +360,7 @@ class Chatbot:
         log.debug(self.conversation['default']['history'])
 
     def __del__(self) -> None:
-        self.save(conf.ChatGPT_CONF_FP)
+        self.save(CFG.C['ChatGPT']['CONF_FP'])
             
             
 if __name__ == '__main__':

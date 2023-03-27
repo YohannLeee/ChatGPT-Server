@@ -6,11 +6,11 @@ from iMessage.imsg import Message
 from AIGC.ChatGPT import Chatbot
 from settings import conf
 
-
 log = logging.getLogger('imsg.utils')
 
 
-def in_whitelist(msg: Message) -> bool:
+
+def in_whitelist(msg: Message, CFG: dict) -> bool:
     """
     Check if sender or group in msg is allowed
 
@@ -21,13 +21,13 @@ def in_whitelist(msg: Message) -> bool:
         bool: True allowed, False not allowed
     """
     if msg.is_group():
-        if not (msg.chat_id in conf.ALLOW_GROUP_ID or msg.group_name in conf.ALLOW_GROUP):
+        if not (msg.chat_id in CFG['imsg']['allow']['group_id'] or msg.group_name in CFG['imsg']['allow']['group']):
             log.warning(f"Group not in white list")
             log.debug(msg.__str__())
             return False
         log.debug(f"Group {msg.group_name or msg.group_name} is in white list")
     else:
-        if not msg.sender_address.lower() in conf.ALLOW_USER:
+        if not msg.sender_address.lower() in CFG['imsg']['allow']['user']:
             log.warning(f"User not in white list")
             log.debug(msg.__str__())
             return False
