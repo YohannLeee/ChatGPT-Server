@@ -17,8 +17,9 @@ from iMessage.utils import in_whitelist, build_anwser, run_command
 from server.AIGCServer import run_server
 from library.utils import CFG
 from library.db import DB
+from library.baidu_api import wav_file_to_text
 # from library.WeCom.WXBizMsgCrypt3 import WXBizMsgCrypt as WeComCrypt
-from WeCom.Message import send_text_to_app
+from WeCom.Message import send_text_to_app, download_temp_media, amr2pcm
 
 log = logging.getLogger('app')
 cfg = CFG().C
@@ -70,9 +71,30 @@ def anwser(chat: Chatbot, args: argparse.Namespace):
         for row_ in data:
             # _, nonce, timestamp, _, receiveid, msgid = row_
             recvd_cont_dict = json.loads(row_[3])
-            log.info(f"Dealing with msg: {recvd_cont_dict=}, Content: {recvd_cont_dict['Content']}")
+            log.info(f"Dealing with msg: {recvd_cont_dict=}, Content: {recvd_cont_dict.get('Content', recvd_cont_dict.get('MediaId'))}")
             if recvd_cont_dict['MsgType'] == 'text':
                 content = recvd_cont_dict['Content']
+            elif recvd_cont_dict['MsgType'] == 'voice':
+                # continue
+                media_id = recvd_cont_dict['MediaId']
+                amr_fp = download_temp_media(media_id= media_id, fn=recvd_cont_dict['MsgId'])
+                if not amr_fp:
+                    log.error(f"Error while geting media with media_id {media_id}")
+                    db.delete({'msgid': recvd_cont_dict['MsgId']})
+                    continue
+                wav_fp = amr_fp.replace(".amr", ".wav")
+                exit_code = amr2pcm(amr_fp, wav_fp)
+                if exit_code != 0:
+                    log.error(f"Error while convert .amr to .wav, exit code = {exit_code}")
+                    db.delete({'msgid': recvd_cont_dict['MsgId']})
+                    continue
+                content = wav_file_to_text(wav_fp)
+                if not content:
+                    log.debug(f"Empty content")
+                    db.delete({'msgid': recvd_cont_dict['MsgId']})
+                    continue
+
+                log.debug(f"Content converted from voice data: {content}")
             else:
                 log.error(f"Not supported MsgType {bytes(recvd_cont_dict['MsgType']).decode('unicode_escape')}")
                 continue
@@ -124,5 +146,8 @@ if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        print("\nExiting...")
+        log.info("\nExiting...")
+    except Exception as e:
+        log.exception(e)
+    finally:
         sys.exit()

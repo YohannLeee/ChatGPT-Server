@@ -16,9 +16,9 @@ import time
 import uuid
 import wave
 from typing import ByteString, Text, Generator
-# import sys
-# import pathlib
-# sys.path.append(pathlib.Path(__file__).parent.parent.as_posix())
+import sys
+import pathlib
+sys.path.append(pathlib.Path(__file__).parent.parent.as_posix())
 
 import websocket
 
@@ -63,9 +63,15 @@ def wav_file_stream(fp: Text, chunk_size: int = 1024) -> Generator:
 
 
 class BaiDuVoiceAI:
+    __instance = None
     """
     百度智能云 - 语音转文字
     """
+    def __new__(cls, *args, **kwargs):
+        if cls.__instance is None:
+            cls.__instance = super().__new__(cls)
+        return cls.__instance
+
     def __init__(self):
         self.msg = dict()
 
@@ -188,8 +194,21 @@ def on_close(ws, status, msg):
     ws.close()
 
 
+def wav_file_to_text(wav_fp: str) -> str:
+    """
+    流式读取wav文件，并且利用百度API转换为文字
+    """
+    audio_stream = wav_file_stream(wav_fp, chunk_size=1024)
+    bdai = BaiDuVoiceAI()
+    msg = bdai.voice2text(audio_stream)
+    logger.info(f"You said: {msg}")
+    # if msg['err_no'] != 0:
+    #     logger.error("Error while converting msg")
+    #     return ""
+    return msg
+
 def main():
-    wav_fp = "D:\\projects\\ChatGPT-iMessage\\audio\\first_audio.wav"
+    wav_fp = "/home/yohann/.AIGCSrv/media/voice/7215601231908484633.wav"
     audio_stream = wav_file_stream(wav_fp, chunk_size=1024)
     bdai = BaiDuVoiceAI()
     msg = bdai.voice2text(audio_stream)

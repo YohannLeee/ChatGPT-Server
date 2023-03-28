@@ -45,7 +45,7 @@ class XMLParse:
 <AgentID>%(AgentID)s</AgentID></xml>"""
 
     @staticmethod
-    def extract(xml_text: str|bytes, keys: Iterable) -> dict:
+    def extract(xml_text: str|bytes, keys: list|dict|tuple) -> dict:
         """提取企业微信发送的信息内容
 
         Args:
@@ -59,11 +59,19 @@ class XMLParse:
             xml_text = xml_text.decode()
         log.debug(f"{xml_text=}")
         xml_tree = ET.fromstring(xml_text)
+        if isinstance(keys, dict):
+            msg_type = xml_tree.find('MsgType').text
+            _keys = keys.get(msg_type)
+        else:
+            _keys = keys
+        if not _keys:
+            log.error(f"Empty keys for msg_type {msg_type}, {xml_text=}, {_keys=}")
+            return {}
         try:
-            result = {k: xml_tree.find(k).text for k in keys} # type: ignore
+            result = {k: xml_tree.find(k).text for k in _keys} # type: ignore
         except AttributeError as e:
             log.error(e)
-            log.info(f"{xml_text=}, {keys=}")
+            log.info(f"{xml_text=}, {_keys=}")
         log.debug(f"{result=}")
         return result
 
@@ -86,9 +94,14 @@ class XMLParse:
             xml_text (str | bytes): 解密后的xml字符串
 
         Returns:
-            dict: {ToUserName, FromUserName, CreateTime, MsgType, Content, MsgId, AgentID}
+            dict: 
+                text: {ToUserName, FromUserName, CreateTime, MsgType, Content, MsgId, AgentID}
+                voice: {ToUserName, FromUserName, CreateTime, MsgType, MediaId, MsgId, AgentID}
         """
-        keys = ('ToUserName', 'FromUserName', 'CreateTime', 'MsgType', 'Content', 'MsgId', 'AgentID')
+        keys = {
+            'text': ('ToUserName', 'FromUserName', 'CreateTime', 'MsgType', 'Content', 'MsgId', 'AgentID'),
+            'voice': ('ToUserName', 'FromUserName', 'CreateTime', 'MsgType', 'MediaId', 'Format', 'MsgId', 'AgentID'),
+        }
         return self.extract(xml_text, keys)
 
     def generate(self, reply: str, content: dict) -> str:

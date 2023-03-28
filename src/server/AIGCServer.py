@@ -164,8 +164,8 @@ async def post_recvWeComMsg(request: Request, response: Response):
         # 提取 msg_dict 中的内容
         recvd_cont_dict = xml_parse.extract_decrypted_msg(recvd_msg_dict['message'])
         response.status_code = status.HTTP_200_OK
-        if recvd_cont_dict['MsgType'] != 'text':
-            return ''
+        # if recvd_cont_dict['MsgType'] == 'voice':
+        #     return ''
 
         # 将消息塞入数据库，会有callback去消费消息
         db = DB()
@@ -173,7 +173,7 @@ async def post_recvWeComMsg(request: Request, response: Response):
         if db.existed(msgid= recvd_cont_dict['MsgId']):
             return 
         db.insert(dict(
-            content = recvd_cont_dict['Content'],
+            content = recvd_cont_dict.get('Content', ''),
             nonce = nonce,
             timestamp = timestamp,
             recvd_cont_dict = json.dumps(recvd_cont_dict),
@@ -194,7 +194,7 @@ async def post_recvWeComMsg(request: Request, response: Response):
         #     return None
         # return r_encrypt_msg
 
-        log.info(f"Received from user: {recvd_cont_dict['FromUserName']}, Content: {recvd_cont_dict['Content']}")
+        log.info(f"Received from user: {recvd_cont_dict['FromUserName']}, Content: {recvd_cont_dict.get('Content', '')}")
     else:
         response.status_code = status.HTTP_403_FORBIDDEN
         log.warning("Invalid signature")
