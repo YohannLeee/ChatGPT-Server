@@ -52,6 +52,37 @@ class CFG:
         if not cls.C:
             cls.C = parse_config_file(fp)
         return cls
+    
+    @classmethod
+    def reload(cls, fp = conf.conf_fp):
+        cls.C = parse_config_file(fp)
+        log.debug("CFG reloaded")
+
+CFG()
+
+def write_yaml(conf: dict, fp: pathlib.Path = conf.conf_fp):
+    with open(fp, 'w') as f:
+        yaml.dump(conf, f)
+
+def add_user(users: list[str]):
+    CFG.C['imsg']['allow']['user'].update({k:1 for k in users})
+    log.debug(f"Added users {users}")
+    write_yaml(CFG.C)
+    CFG.reload()
+    return CFG.C['imsg']['allow']['user']
+
+def rm_user(users: list[str]):
+    status = 0
+    for user in users:
+        try:
+            CFG.C['imsg']['allow']['user'].pop(user)
+        except KeyError:
+            status = 1
+            return status, f"User not found, {user}"
+    log.debug(f"Removed users {users}")
+    write_yaml(CFG.C)
+    CFG.reload()
+    return status, CFG.C['imsg']['allow']['user']
 
 def main():
     parse_config_file(conf.conf_fp)
