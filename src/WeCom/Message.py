@@ -98,12 +98,17 @@ def download_temp_media(media_id: str, access_token: str = get_access_token(), f
     log.error(f"{res.text=}")
     return ''
 
-def download_high_definition_voice_material(media_id: str, access_token: str = get_access_token()) -> str:
+def download_high_definition_voice_material(media_id: str, access_token: str = get_access_token(), fn: str = '') -> str:
+    """
+    WeCom 获取高清语音素材
+    https://developer.work.weixin.qq.com/document/path/90255
+    格式为speex, 16k ar
+    """
     url = 'https://qyapi.weixin.qq.com/cgi-bin/media/get/jssdk?access_token=%s&media_id=%s' % (access_token, media_id)
     res = requests.get(url, verify=False)
     log.debug(f"{res.status_code=}, {res.headers=}")
     if res.status_code == 200:
-        fp = get_mediar_cache_fp()
+        fp = get_mediar_cache_fp(fn = fn, suffix='.spx')
         fp.write_bytes(res.content)
         return fp.as_posix()
     log.error(f"{res.text=}")
@@ -116,10 +121,27 @@ def amr2pcm(amr_fp: str, wav_fp: str, audio_rate: int = 16000) -> int:
     """
     return os.system(f'ffmpeg -y -i {amr_fp} -acodec pcm_s16le -ar {audio_rate} {wav_fp}')
 
+def spx2pcm(spx_fp: str, wav_fp: str, audio_rate: int = 16000) -> int:
+    """
+    spx(speex)格式语音数据转换为wav格式音频文件
+    wav格式的音频文件编码格式为pcm
+    """
+    return os.system(f"sox {spx_fp} -t raw -r 16000 -e signed-integer -b 16 -c 1 {wav_fp}")
+
+def voice2text():
+    """
+    企业微信官方API提供的语音转换链接
+    https://qyapi.weixin.qq.com/cgi-bin/externalcontact/convert_voice?access_token=ACCESS_TOKEN
+    POST body: {'auth_code': xxx, 'voice_media_id': xxx, 'lang': 'zh_CN'}
+    这个API是ChatGPT搜索出来的，在搜索引擎里搜索不到
+    目前因为获取不到auth_code，无法使用该API
+    """
+    pass
+
 def main():
     access_token = get_access_token()
-    media_id = '1L4EXHrvnZbZ5Qw5MwD3OpxCLseJkKF0l3juHqlsF1TFTMf-S3CxDx3LdPlcsLHv4'
-    download_high_definition_voice_material(access_token, media_id)
+    media_id = '1cSWPC88cVbyTA-tDFMO5SLqbNOEfi_G62ss7sGnMdLJZ7lh3DmQOFM1TBV6JB5Bu'
+    download_high_definition_voice_material(media_id, access_token)
     pass
 
 

@@ -19,7 +19,7 @@ from library.utils import CFG
 from library.db import DB
 from library.baidu_api import wav_file_to_text
 # from library.WeCom.WXBizMsgCrypt3 import WXBizMsgCrypt as WeComCrypt
-from WeCom.Message import send_text_to_app, download_temp_media, amr2pcm
+from WeCom.Message import send_text_to_app, download_temp_media, amr2pcm, download_high_definition_voice_material
 
 log = logging.getLogger('app')
 cfg = CFG().C
@@ -78,6 +78,7 @@ def anwser(chat: Chatbot, args: argparse.Namespace):
                 # continue
                 media_id = recvd_cont_dict['MediaId']
                 amr_fp = download_temp_media(media_id= media_id, fn=recvd_cont_dict['MsgId'])
+                # amr_fp = download_high_definition_voice_material(media_id= media_id, fn=recvd_cont_dict['MsgId'])  # invalid media_id, https://open.work.weixin.qq.com/devtool/query?e=40007'
                 if not amr_fp:
                     log.error(f"Error while geting media with media_id {media_id}")
                     db.delete({'msgid': recvd_cont_dict['MsgId']})
@@ -93,7 +94,7 @@ def anwser(chat: Chatbot, args: argparse.Namespace):
                     log.debug(f"Empty content")
                     db.delete({'msgid': recvd_cont_dict['MsgId']})
                     continue
-
+                send_text_to_app(content= f"识别到您的问题：{content}", recvd_cont_dict= recvd_cont_dict)
                 log.debug(f"Content converted from voice data: {content}")
             else:
                 log.error(f"Not supported MsgType {bytes(recvd_cont_dict['MsgType']).decode('unicode_escape')}")
@@ -120,7 +121,7 @@ def anwser(chat: Chatbot, args: argparse.Namespace):
 
 
 
-def main():
+async def main():
     log.info(f"Running chatGPT + iMessage, version: {conf.VERSION}")
     args = get_args(sys.argv[1:])
     Chatbot = get_chat_bot(name= args.bot)
@@ -135,7 +136,7 @@ def main():
         sync_imsg(chat= chat, args = args)
     elif args.execute == 'server':
         log.info("Running FastAPI server")
-        run_server()
+        await run_server()
     elif args.execute == 'srv_callback':
         log.info(f"Running as server callback")
         anwser(chat, args)
@@ -144,7 +145,7 @@ def main():
 
 if __name__ == '__main__':
     try:
-        main()
+        asyncio.run(main())
     except KeyboardInterrupt:
         log.info("\nExiting...")
     except Exception as e:

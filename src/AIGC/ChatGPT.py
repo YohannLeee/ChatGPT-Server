@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -6,30 +7,18 @@ import pathlib
 sys.path.append(
     pathlib.Path(__file__).parent.parent.as_posix()
 )
-from typing import Dict, Generator, Text, Tuple
+from typing import AsyncGenerator, Dict, Generator, Text, Tuple
 
 import openai
 import requests
 import tiktoken
+import aiohttp
 
 from library.utils import get_filtered_keys_from_object, CFG
 from settings import conf
 
 # openai.api_key = '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'
 log = logging.getLogger("app.chat")
-
-class ChatResponse:
-    def __init__(self, res: Dict):
-        self.res = res
-
-    @property
-    def content(self):
-        return self.res['choices'][0]['message']['content']
-
-    @property
-    def usage(self):
-        return self.res["usage"]['prompt_tokens'], self.res["usage"]['completion_tokens'], self.res['usage']['total_tokens']
-
 
 class Chatbot:
     """
@@ -58,7 +47,7 @@ class Chatbot:
             api_key = CFG.C['ChatGPT']['API_KEY']
 
         self.engine = engine
-        self.session = requests.Session()
+        # self.session = requests.Session()
         self.api_key = api_key
         self.system_prompt = system_prompt
         self.max_tokens = max_tokens
@@ -73,11 +62,12 @@ class Chatbot:
             proxy = CFG.C['ChatGPT']['PROXY']
 
         if proxy:
-            self.session.proxies = {
-                "http": proxy,
-                "https": proxy,
-            }
-            log.debug(f"Proxy: {self.session.proxies}")
+            self.proxy = proxy
+            # self.session.proxies = {
+            #     "http": proxy,
+            #     "https": proxy,
+            # }
+            log.debug(f"Proxy: {self.proxy}")
         self.conversation = {}
         self.new_user()
         if max_tokens > 4000:
@@ -182,17 +172,21 @@ class Chatbot:
         try_index = 0
         while try_index < 3:
             try:
-                response = self.session.post(
+                response = requests.post(
                     os.environ.get("API_URL") or "https://api.openai.com/v1/chat/completions",
                     headers={"Authorization": f"Bearer {kwargs.get('api_key', self.api_key)}"},
                     json= payload,
                     stream = _stream,
                     verify = False,
+                    proxies = {
+                        "http": self.proxy,
+                        "https": self.proxy,
+                    }
                 )
                 break
             except requests.exceptions.ProxyError as e:
                 log.exception(e)
-                log.info(f"Proxy: {self.session.proxies}")
+                log.info(f"Proxy: {self.proxy}")
             finally:
                 try_index += 1
                 if try_index == 3:
@@ -247,6 +241,107 @@ class Chatbot:
         if not _stream:
             yield full_response
 
+    async def aask_stream(
+        self,
+        prompt: str,
+        role: str = "user",
+        convo_id: str = "default",
+        **kwargs,
+    ) -> AsyncGenerator:
+        """
+        Ask a question
+        """
+        # Make conversation if it doesn't exist
+        if convo_id not in self.conversation:
+            self.new_user(convo_id=convo_id, system_prompt=self.system_prompt)
+        self.add_to_conversation(prompt, "user", convo_id=convo_id)
+        _stream = kwargs.get('stream', True)
+        self.__truncate_conversation(convo_id=convo_id)
+        payload = {
+                "model": self.engine,
+                "messages": self.conversation[convo_id]['history'],
+                "stream": _stream,
+                # kwargs
+                "temperature": kwargs.get("temperature", self.temperature),
+                "top_p": kwargs.get("top_p", self.top_p),
+                "presence_penalty": kwargs.get(
+                    "presence_penalty",
+                    self.presence_penalty,
+                ),
+                "frequency_penalty": kwargs.get(
+                    "frequency_penalty",
+                    self.frequency_penalty,
+                ),
+                "n": kwargs.get("n", self.reply_count),
+                "user": role,
+                "max_tokens": self.get_max_tokens(convo_id=convo_id),
+            }
+        log.debug(f"Request payload: {payload}")
+        # Get response
+        try_index = 0
+        response: aiohttp.ClientResponse
+        while try_index < 3:
+            try:
+                async with aiohttp.ClientSession() as ss:
+                    response = await ss.post(
+                        os.environ.get("API_URL") or "https://api.openai.com/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {kwargs.get('api_key', self.api_key)}"},
+                        json= payload,
+                        ssl = False,
+                        proxy = self.proxy
+                    )
+                break
+            except requests.exceptions.ProxyError as e:
+                log.exception(e)
+                log.info(f"Proxy: {self.proxy}")
+            finally:
+                try_index += 1
+                if try_index == 3:
+                    yield f"Error: {e}"
+                    return 
+
+        match response.status:
+            case 401:
+                raise Exception(f"Error: {response.status} {response.reason} {await response.text()}\n API_KEY: {kwargs.get('api_key', self.api_key)}")
+            case 200:
+                pass
+            case _:
+               raise Exception(
+                f"Error: {response.status} {response.reason} {await response.text()}",
+            ) 
+            
+
+        response_role: str = ''
+        full_response: str = ""
+        # log.debug(f"{response.text=}")
+        # async for line, _ in response.content.iter_chunks():
+        async for line in response.content:
+            print(f"{line=}")
+            if not line or not line.startswith(b'data: '):
+                continue
+            # Remove "data: "
+            line = line.decode("utf-8")[6:]
+            if line == "[DONE]":
+                break
+            # print(f"{line=}\n{response.headers=}")
+            resp: dict = json.loads(line)
+            choices = resp.get("choices") # type: ignore
+            if not choices:
+                continue
+            delta = choices[0].get("delta")
+            if not delta:
+                continue
+            if "role" in delta:
+                response_role = delta["role"]
+            if "content" in delta:
+                content = delta["content"]
+                full_response += content
+                print(f"Yielding {content=}")
+                yield content
+
+        if self.conversation[convo_id]['use_history']:
+            self.add_to_conversation(full_response, response_role, convo_id=convo_id)
+
     def ask(
         self,
         prompt: str,
@@ -267,6 +362,92 @@ class Chatbot:
         )
         # print(dir(full_response))
         return next(full_response)
+    
+    async def aask(
+        self,
+        prompt: str,
+        role: str = "user",
+        convo_id: str = "default",
+        msg_id: str = '1',
+        **kwargs,
+    ) -> tuple[str, str]:
+        """
+        Non-streaming ask
+        """
+        # Make conversation if it doesn't exist
+        if convo_id not in self.conversation:
+            self.new_user(convo_id=convo_id, system_prompt=self.system_prompt)
+        self.add_to_conversation(prompt, "user", convo_id=convo_id)
+        self.__truncate_conversation(convo_id=convo_id)
+        payload = {
+                "model": self.engine,
+                "messages": self.conversation[convo_id]['history'],
+                "stream": False,
+                # kwargs
+                "temperature": kwargs.get("temperature", self.temperature),
+                "top_p": kwargs.get("top_p", self.top_p),
+                "presence_penalty": kwargs.get(
+                    "presence_penalty",
+                    self.presence_penalty,
+                ),
+                "frequency_penalty": kwargs.get(
+                    "frequency_penalty",
+                    self.frequency_penalty,
+                ),
+                "n": kwargs.get("n", self.reply_count),
+                "user": role,
+                "max_tokens": self.get_max_tokens(convo_id=convo_id),
+            }
+        # Get response
+        try_index = 0
+        response: aiohttp.ClientResponse
+        while try_index < 3:
+            try:
+                async with aiohttp.ClientSession() as ss:
+                    log.debug(f"Request payload: {payload}")
+                    response = await ss.post(
+                        os.environ.get("API_URL") or "https://api.openai.com/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {kwargs.get('api_key', self.api_key)}"},
+                        json= payload,
+                        ssl = False,
+                        proxy = self.proxy
+                    )
+                break
+            except requests.exceptions.ProxyError as e:
+                log.exception(e)
+                log.info(f"Proxy: {self.proxy}")
+            finally:
+                try_index += 1
+                if try_index == 3:
+                    return msg_id, f"Error: {e}"
+
+        match response.status:
+            case 401:
+                raise Exception(f"Error: {response.status} {response.reason} {await response.text()}\n API_KEY: {kwargs.get('api_key', self.api_key)}")
+            case 200:
+                pass
+            case _:
+               raise Exception(
+                f"Error: {response.status} {response.reason} {await response.text()}",
+            ) 
+            
+
+        # log.debug(f"{response.text=}")
+        # async for line, _ in response.content.iter_chunks():
+        resp = await response.json()
+        # TODO save usage info
+        usage: dict = resp['usage']
+        choices: dict = resp['choices'][0] # type: ignore
+        if not choices:
+            log.error(f"Error in response: {resp}")
+            return msg_id, "Error"
+        response_role = choices['message']['role']
+        full_response = choices['message']['content'].strip()
+        self.calculate_token(convo_id=convo_id, usage= usage)
+
+        if self.conversation[convo_id]['use_history']:
+            self.add_to_conversation(full_response, response_role, convo_id=convo_id)
+        return msg_id, full_response
 
     def rollback(self, n: int = 1, convo_id: str = "default") -> None:
         """
@@ -331,7 +512,7 @@ class Chatbot:
                 f,
                 indent=2,
                 # saves session.proxies dict as session
-                default=lambda o: o.__dict__["proxies"],
+                # default=lambda o: o.__dict__["proxies"],
             )
 
     def load(self, file: str, *_keys: str) -> None:
@@ -347,9 +528,9 @@ class Chatbot:
             keys = get_filtered_keys_from_object(self, *_keys)
             log.debug(f"Filtered keys: {keys}")
 
-            if "session" in keys and loaded_config["session"]:
-                self.session.proxies = loaded_config["session"]
-            keys = keys - {"session"}
+            # if "session" in keys and loaded_config["session"]:
+            #     self.session.proxies = loaded_config["session"]
+            # keys = keys - {"session"}
             self.__dict__.update({key: loaded_config[key] for key in keys})
 
     def load_test(self, *keys) -> None:
@@ -361,23 +542,42 @@ class Chatbot:
 
     def __del__(self) -> None:
         self.save(CFG.C['ChatGPT']['CONF_FP'])
-            
-            
-if __name__ == '__main__':
+
+    async def __aexit__(self) -> None:
+        print("aexit")
+
+
+async def main():
     chat_ = Chatbot(
-        api_key='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',
-        stream=True
+        api_key='',
+        stream=False
     )
     chat_.load_test()
     # chat_.conversation['default'].use_history = True
-    res = chat_.ask_stream("你好，我叫刘培强")
-    print(type(res), res)
-    for _s in res:
-        sys.stdout.write(_s)
+    # a_gen = chat_.aask_stream("你好，我叫刘培强")
+    # print(type(a_gen), a_gen)
+    # async for _s in a_gen:
+    #     sys.stdout.write(_s)
+    #     print()
+    # # log.debug(f"{res=}")
+    # a_gen = chat_.aask_stream("你好，我叫什么名字？")
+    # # log.debug(f"{res=}")
+    # async for _s in a_gen:
+    #     sys.stdout.write(_s)
+    #     print()
+    question = {
+        '1': '你好，我叫刘培强',
+        '2': 'Linux系统发行版有哪些？'
+    }
+
+    tasks = []
+    for msg_id, prompt in question.items():
+        tasks.append(asyncio.create_task(chat_.aask(prompt=prompt, msg_id=msg_id)))
+    res = await asyncio.gather(*tasks)
+    for msg_id, cont in res:
+        print(f"Q: {question[msg_id]}\nA: {cont}")
         print()
-    # log.debug(f"{res=}")
-    res = chat_.ask_stream("你好，我叫什么名字？")
-    # log.debug(f"{res=}")
-    for _s in res:
-        sys.stdout.write(_s)
-        print()
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

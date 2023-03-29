@@ -3,7 +3,10 @@ import logging
 import asyncio
 import hashlib
 from base64 import b64decode
-import xml.etree.cElementTree as et
+# import xml.etree.cElementTree as et
+import sys
+import pathlib
+sys.path.append(pathlib.Path(__file__).parent.parent.as_posix())
 
 from fastapi import FastAPI, Response, Request, status
 import uvicorn
@@ -211,14 +214,26 @@ async def get_access_token(response: Response):
 
 
 
-def run_server():
+async def run_server():
     log.debug("Running server")
-    uvicorn.run(
-        app,
+    # asyncio.gather(uvicorn.run(
+    #     app,
+    #     host=CFG.C['SERVER']['IP'],
+    #     port=8002,
+    #     # port=CFG.C['SERVER']['PORT'],
+    #     loop='asyncio'
+    # ))
+    config = uvicorn.Config(
+        app, 
         host=CFG.C['SERVER']['IP'],
-        port=CFG.C['SERVER']['PORT']
-    )
+        # port=8003,
+        port=CFG.C['SERVER']['PORT'],
+        # reload=True,
+        # reload_dirs=pathlib.Path(__file__).parent.parent.as_posix()
+        )
+    server = uvicorn.Server(config)
+    await server.serve()
 
 
 if __name__ == '__main__':
-    run_server()
+    asyncio.run(run_server())
