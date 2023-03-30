@@ -61,13 +61,12 @@ class Chatbot:
         if not proxy:
             proxy = CFG.C['ChatGPT']['PROXY']
 
-        if proxy:
-            self.proxy = proxy
+        self.proxy = proxy
             # self.session.proxies = {
             #     "http": proxy,
             #     "https": proxy,
             # }
-            log.debug(f"Proxy: {self.proxy}")
+        log.debug(f"Proxy: {self.proxy}")
         self.conversation = {}
         self.new_user()
         if max_tokens > 4000:
@@ -181,7 +180,7 @@ class Chatbot:
                     proxies = {
                         "http": self.proxy,
                         "https": self.proxy,
-                    }
+                    } if self.proxy else None
                 )
                 break
             except requests.exceptions.ProxyError as e:
@@ -531,7 +530,7 @@ class Chatbot:
             # if "session" in keys and loaded_config["session"]:
             #     self.session.proxies = loaded_config["session"]
             # keys = keys - {"session"}
-            self.__dict__.update({key: loaded_config[key] for key in keys})
+            self.__dict__.update({key: loaded_config[key] for key in keys if key in loaded_config})
 
     def load_test(self, *keys) -> None:
         """

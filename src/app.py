@@ -47,6 +47,7 @@ def sync_imsg(chat: Chatbot, args: argparse.Namespace):
                     )
                 except Exception as e:
                     anwser = str(e)
+                    log.exception(e)
                 # log.debug(f"{content=}")
             elif msg_obj.msg[:3] == conf.CMD_FILTER:
                 anwser = run_command(msg_obj.msg[3:], chat, msg_obj)
@@ -56,7 +57,12 @@ def sync_imsg(chat: Chatbot, args: argparse.Namespace):
             if not anwser:
                 continue
             content = build_anwser(msg_obj, anwser)
-            send_imsg(msg_obj.guid, content, sender_address = msg_obj.sender_address, group_name = msg_obj.group_name)
+            try:
+                send_imsg(msg_obj.guid, content, sender_address = msg_obj.sender_address, group_name = msg_obj.group_name)
+            except Exception as e:
+                send_imsg(msg_obj.guid, str(e), sender_address = msg_obj.sender_address, group_name = msg_obj.group_name)
+                log.exception(e)
+                
         time.sleep(3)
 
 def anwser(chat: Chatbot, args: argparse.Namespace):

@@ -66,7 +66,7 @@ def send_imsg(guid: typing.Text, msg: typing.Text, **kwargs):
     if not msg:
         return
     log.debug(f"Send msg to {guid} {kwargs.get('group_name')} {kwargs.get('sender_address')}")
-    command = conf.SEND_IMSG.format(guid=guid, msg=msg.replace('"', '\\"'))
+    command = conf.SEND_IMSG.format(guid=guid, msg=msg.replace("\\", "\\\\").replace('"', '\\"'))
     log.debug(f"{command=}")
     r = applescript.run(command)
     log.debug(f"Send msg exit code - {r.code}")
@@ -75,6 +75,7 @@ def send_imsg(guid: typing.Text, msg: typing.Text, **kwargs):
     if r.err:
         log.error(f"Error: {r.err}")
         log.debug(f"Answer should be sent {command=}")
+        raise Exception(f"Send imsg error: {r.code}: {r.err}")
     
 
 
