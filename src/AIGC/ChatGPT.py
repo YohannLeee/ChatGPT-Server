@@ -167,20 +167,21 @@ class Chatbot:
                 "max_tokens": self.get_max_tokens(convo_id=convo_id),
             }
         log.debug(f"Request payload: {payload}")
+        request_dict = dict(
+            headers = {"Authorization": f"Bearer {kwargs.get('api_key', self.api_key)}"},
+            json= payload,
+            stream = _stream,
+            verify = False,
+        )
+        if self.proxy:
+            request_dict['proxies'] = {"http": self.proxy, "https": self.proxy,}
         # Get response
         try_index = 0
         while try_index < 3:
             try:
                 response = requests.post(
                     os.environ.get("API_URL") or "https://api.openai.com/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {kwargs.get('api_key', self.api_key)}"},
-                    json= payload,
-                    stream = _stream,
-                    verify = False,
-                    proxies = {
-                        "http": self.proxy,
-                        "https": self.proxy,
-                    } if self.proxy else None
+                    **request_dict
                 )
                 break
             except requests.exceptions.ProxyError as e:
