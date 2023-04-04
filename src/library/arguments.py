@@ -9,7 +9,7 @@ def get_args(args_: typing.List) -> argparse.Namespace:
     parser.add_argument("--api_key", type=str, help="OpenAI API key")
     parser.add_argument("--bot", type=str, choices=['chatgpt'], default='chatgpt', help="Chatbot name")
     # parser.add_argument("--imsg", action="store_true", help="Use for imsg or server listening")
-    parser.add_argument("--execute", type=str, choices=["imsg", "server", "srv_callback"], help="xxx")
+    parser.add_argument("--execute", type=str, choices=["imsg", "wecomserver", "wecomsrv_callback", "webserver"], help="xxx")
     parser.add_argument("--stream", action="store_true", help="Enable streaming")
     parser.add_argument("--temperature", type=float, default=0.6, help="Temperature for response")
     parser.add_argument("--proxy", type=str, default=None, help="Proxy address")

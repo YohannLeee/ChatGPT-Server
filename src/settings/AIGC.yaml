@@ -46,3 +46,10 @@ Baidu:
 
 # sqlite db for product/consume data
 DATA_DB_FP: ~/.AIGCSrv/data.db
+
+# Web
+WebServer:
+ accessToken: testToken202304041811
+ PORT: 8002
+ IP: 'localhost'
+ 

@@ -9,6 +9,7 @@ import pathlib
 sys.path.append(pathlib.Path(__file__).parent.parent.as_posix())
 
 from fastapi import FastAPI, Response, Request, status
+from fastapi.responses import StreamingResponse
 import uvicorn
 from Crypto.Cipher import AES
 
@@ -17,6 +18,7 @@ from server.utils import aget, XMLParse
 from library.utils import CFG
 from library.db import DB
 from library.WeCom.WXBizMsgCrypt3 import WXBizMsgCrypt as WeComCrypt
+from AIGC.ChatGPT import Chatbot
 
 log = logging.getLogger('app.server')
 app = FastAPI()
@@ -212,6 +214,30 @@ async def get_access_token(response: Response):
     return await res.json()
 
 
+chat: Chatbot = None # type: ignore
+
+@app.post("/api/testgpt")
+async def test_chatGPT(request: Request, response: Response):
+    """ChatGPT web service test api
+    body: 
+        - accessToken: token
+        userName: user1
+        content: string
+
+    Args:
+        request (Request): _description_
+        response (Response): _description_
+    """
+    body = await request.body()
+    data = json.loads(body)
+    log.debug(f"data: {data}")
+    log.debug(f"Received request from {data['userName']}")
+    log.debug(f"Content: {data['content']}")
+    log.debug(f"accessToken: {data['accessToken']}")
+    stream_res = chat.ask_stream(prompt=data['content'])
+    response.status_code = status.HTTP_200_OK
+
+    return StreamingResponse(stream_res, 200)
 
 
 async def run_server():
@@ -228,6 +254,22 @@ async def run_server():
         host=CFG.C['SERVER']['IP'],
         # port=8003,
         port=CFG.C['SERVER']['PORT'],
+        # reload=True,
+        # reload_dirs=pathlib.Path(__file__).parent.parent.as_posix()
+        )
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
+async def run_web_server(chat_: Chatbot):
+    global chat
+    chat = chat_
+    log.debug(f"Running web server")
+    config = uvicorn.Config(
+        app, 
+        host=CFG.C['WebServer']['IP'],
+        # port=8003,
+        port=CFG.C['WebServer']['PORT'],
         # reload=True,
         # reload_dirs=pathlib.Path(__file__).parent.parent.as_posix()
         )

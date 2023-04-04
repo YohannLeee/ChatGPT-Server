@@ -14,7 +14,7 @@ from library.arguments import get_args
 from AIGC import get_chat_bot, Chatbot
 from iMessage.imsg import Imsg, Message, send_imsg
 from iMessage.utils import in_whitelist, build_anwser, run_command
-from server.AIGCServer import run_server
+from server.AIGCServer import run_server, run_web_server
 from library.utils import CFG
 from library.db import DB
 from library.baidu_api import wav_file_to_text
@@ -140,12 +140,15 @@ async def main():
     # chat.load_test()
     if args.execute == 'imsg':
         sync_imsg(chat= chat, args = args)
-    elif args.execute == 'server':
-        log.info("Running FastAPI server")
+    elif args.execute == 'wecomserver':
+        log.info("Running FastAPI WeCom server")
         await run_server()
-    elif args.execute == 'srv_callback':
+    elif args.execute == 'wecomsrv_callback':
         log.info(f"Running as server callback")
         anwser(chat, args)
+    elif args.execute == 'webserver':
+        log.info(f"Running FastAPI server as WEB server")
+        await run_web_server(chat_= chat)
             
 
 
