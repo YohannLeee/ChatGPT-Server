@@ -186,11 +186,14 @@ class Chatbot:
                 break
             except requests.exceptions.ProxyError as e:
                 log.exception(e)
-                log.info(f"request dict: {request_dict}")
+                # log.info(f"request dict: {request_dict}")
+            except Exception as e:
+                log.exception(e)
             finally:
                 try_index += 1
+                log.info(f"request dict: {request_dict}")
                 if try_index == 3:
-                    return f"Error: {e}"
+                    return f"Error"
 
         match response.status_code:
             case 401:

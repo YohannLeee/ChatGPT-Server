@@ -43,7 +43,7 @@ WHERE
     and m.associated_message_type = 0
     and m.text is not null
     and m.text != ' '
-    and m.is_from_me = 0
+    -- and m.is_from_me = 0
 ORDER BY 
 m.date ASC;
 """
