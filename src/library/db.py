@@ -31,6 +31,7 @@ class DB:
         cur.execute(conf.DATALIST_TABLE)
         cur.execute(conf.TRIGGER_TABLE)
         cur.execute(conf.TRIGGER)
+        log.debug("DB initialized")
         return conn, cur
     
     def insert(self, data: dict):

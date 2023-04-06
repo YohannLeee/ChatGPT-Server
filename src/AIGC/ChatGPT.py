@@ -186,7 +186,7 @@ class Chatbot:
                 break
             except requests.exceptions.ProxyError as e:
                 log.exception(e)
-                log.info(f"Proxy: {self.proxy}")
+                log.info(f"request dict: {request_dict}")
             finally:
                 try_index += 1
                 if try_index == 3:

@@ -12,6 +12,7 @@ from fastapi import FastAPI, Response, Request, status
 from fastapi.responses import StreamingResponse
 import uvicorn
 from Crypto.Cipher import AES
+from pydantic import BaseModel
 
 from settings import conf
 from server.utils import aget, XMLParse
@@ -83,17 +84,12 @@ def msg_b64_decrypt(encryped_text_b64: str, encoding_aes_key: str) -> dict:
 
 # 验证企业微信的URL有效性
 @app.get('/recvWeComMsg')
-async def recvWeComMsg(request: Request, response: Response):
+async def recvWeComMsg(request: Request, response: Response, msg_signature: str = '', timestamp: str = '', nonce: str = '', echostr: str = ''):
     log.debug('routing to recvWeComMsg')
-    query_params = request.query_params
-    signature = query_params.get('msg_signature', '')
-    timestamp = query_params.get('timestamp', '')
-    nonce = query_params.get('nonce', '')
-    echostr = query_params.get('echostr', '')
-    log.debug(f"{signature=}, {timestamp=}, {nonce=}, {echostr=}")   
+    log.debug(f"{msg_signature=}, {timestamp=}, {nonce=}, {echostr=}")   
 
     # 将加密后的字符串与 signature 进行比对
-    if msg_valid(signature, CFG.C['WeCom']['Token'], timestamp, nonce, echostr):
+    if msg_valid(msg_signature, CFG.C['WeCom']['Token'], timestamp, nonce, echostr):
         log.debug(f"msg valid")
         msg_dict = msg_b64_decrypt(echostr, CFG.C['WeCom']['EncodingAESKey'])
 
@@ -107,11 +103,12 @@ async def recvWeComMsg(request: Request, response: Response):
 def reply_msg(msg: str):
     return f"您刚刚发送消息: {msg}"
     
-@app.post('/recvWeComMsg')
-async def post_recvWeComMsg(request: Request, response: Response):
+@app.post('/recvWeComMsg', status_code=200)
+async def post_recvWeComMsg(request: Request, response: Response, msg_signature: str = '', timestamp: str = '', nonce: str = '', ):
     """接收企业微信用户发送给智远机器人的消息，并且设置回调函数
     企业微信用户发送消息时
     该接口接收到的消息包含2处
+    ```
         1. url/path?msg_signature=x&timestamp=x&nonce=x
         2. xml text body : <xml> 
                                <ToUserName><![CDATA[toUser]]></ToUserName>
@@ -130,19 +127,22 @@ async def post_recvWeComMsg(request: Request, response: Response):
                                 <MsgId>msgID</MsgId>
                                 <AgentID>agentID</AgentID>
                             </xml>
-
+    ```
     收到请求后需要做的步骤:
+    ```
         1. 验证签名 signature
         2. 转换 xml text body 为 recvd_body dict
         3. 解密解码 msg_encrypt 为 recvd_xml_msg
         4. 转换 recvd_xml_msg 为 recvd_msg_dict
         5. 转换 recvd_msg_dict 中的消息文本为 recvd_cont_dict
+    ```
         ========== 下面准备好待回复的消息，然后按顺序逆向操作 ========
-        
+    ```
         5. 生成准备回复的文本消息 rply_cont
         6. 填充到 recvd_cont_dict 生成 rply_cont_dict 并转换成 rply_cont_xml
         7. 利用企业微信提供的加密包进行加密、签名、编码
         8. 发送消息
+    ```
 
     Args:
         request (Request): _description_
@@ -156,14 +156,10 @@ async def post_recvWeComMsg(request: Request, response: Response):
     xml_parse = XMLParse()
     recvd_body: dict = xml_parse.extract_msg(body)
     log.debug(f"Request body {recvd_body=}")
-    
-    query_params = request.query_params
-    signature = query_params.get('msg_signature', '')
-    timestamp = query_params.get('timestamp', '')
-    nonce = query_params.get('nonce', '')
+
     # log.debug(f"{to_user_name=}, {agent_id=}, {encrypt=}")
 
-    if msg_valid(signature, CFG.C['WeCom']['Token'], timestamp, nonce, recvd_body['Encrypt']):
+    if msg_valid(msg_signature, CFG.C['WeCom']['Token'], timestamp, nonce, recvd_body['Encrypt']):
         # encrypt 部分 解密后的dict
         recvd_msg_dict = msg_b64_decrypt(recvd_body['Encrypt'], CFG.C['WeCom']['EncodingAESKey']) # type: ignore
         # 提取 msg_dict 中的内容
@@ -206,18 +202,21 @@ async def post_recvWeComMsg(request: Request, response: Response):
         return "Invalid signature"
     
 
-@app.get('/wecom/accesstoken')
-async def get_access_token(response: Response):
+@app.get('/wecom/accesstoken', status_code=200)
+async def get_access_token():
     url = CFG.C['WeCom']['URL']['ACCTK'] % (CFG.C['WeCom']['CorpID'], CFG.C['WeCom']['Secret'])
     res = await aget(url, verify_ssl=False)
-    response.status_code = status.HTTP_200_OK
     return await res.json()
 
 
 chat: Chatbot = None # type: ignore
+class UserContent(BaseModel):
+    userName: str = 'user1'
+    content: str = '你好'
+    accessToken: str = 'testToken202304041811'
 
 @app.post("/api/testgpt")
-async def test_chatGPT(request: Request, response: Response):
+async def test_chatGPT(data: UserContent):
     """ChatGPT web service test api
     body: 
         - accessToken: token
@@ -228,17 +227,23 @@ async def test_chatGPT(request: Request, response: Response):
         request (Request): _description_
         response (Response): _description_
     """
-    body = await request.body()
-    data = json.loads(body)
     log.debug(f"data: {data}")
-    log.debug(f"Received request from {data['userName']}")
-    log.debug(f"Content: {data['content']}")
-    log.debug(f"accessToken: {data['accessToken']}")
-    stream_res = chat.ask_stream(prompt=data['content'])
-    response.status_code = status.HTTP_200_OK
-
+    log.debug(f"Received request from {data.userName}")
+    log.debug(f"Content: {data.content}")
+    log.debug(f"accessToken: {data.accessToken}")
+    stream_res = chat.ask_stream(prompt=data.content)
     return StreamingResponse(stream_res, 200)
 
+@app.post("/api/test")
+@app.get("/api/test")
+async def test_status(request: Request, response: Response):
+    """
+    Test if server alive
+    """
+    body = await request.body()
+    params = request.query_params
+    response.status_code = status.HTTP_200_OK
+    return {'body': body, 'params': params}
 
 async def run_server():
     log.debug("Running server")
