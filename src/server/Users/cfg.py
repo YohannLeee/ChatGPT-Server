@@ -1,11 +1,12 @@
 from library.fastapi_users_verification.schemas import MailAccountModel
+from library.utils import CFG
 
 
 MAIL_ACCOUNT = MailAccountModel(
-    mail_host='smtp.163.com',
-    mail_port=465,
-    mail_user='zhiyuanai001@163.com',
-    mail_password='NNBJYKBOPASLALYQ'
+    mail_host=CFG.C['Mail']['host'],
+    mail_port=CFG.C['Mail']['port'],
+    mail_user=CFG.C['Mail']['user'],
+    mail_password=CFG.C['Mail']['pswd']
 )
 
 
