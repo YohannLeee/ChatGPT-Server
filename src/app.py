@@ -5,6 +5,7 @@ import asyncio
 import json
 import time
 import logging
+import logging.config
 import sys
 # import pathlib
 # print(sys.path)
@@ -14,13 +15,16 @@ from library.arguments import get_args
 from AIGC import get_chat_bot, Chatbot
 from iMessage.imsg import Imsg, Message, send_imsg
 from iMessage.utils import in_whitelist, build_anwser, run_command
-from server.AIGCServer import run_server, run_web_server
+from server.server import run_server
 from library.utils import CFG
 from library.db import DB
 from library.baidu_api import wav_file_to_text
 # from library.WeCom.WXBizMsgCrypt3 import WXBizMsgCrypt as WeComCrypt
 from WeCom.Message import send_text_to_app, download_temp_media, amr2pcm, download_high_definition_voice_material
+import exceptions
+from settings.log import get_log_config
 
+logging.config.dictConfig(get_log_config())
 log = logging.getLogger('app')
 cfg = CFG().C
 
@@ -45,6 +49,8 @@ def sync_imsg(chat: Chatbot, args: argparse.Namespace):
                         prompt= question[3:], 
                         convo_id=sender if args.multi_people else "default"
                     )
+                except exceptions.ModelOverloaded as e:
+                    anwser = e.reason
                 except Exception as e:
                     anwser = str(e)
                     log.exception(e)
@@ -128,7 +134,7 @@ def anwser(chat: Chatbot, args: argparse.Namespace):
 
 
 async def main():
-    log.info(f"Running chatGPT + iMessage, version: {conf.VERSION}")
+    log.info(f"Running chatGPT Server, version: {conf.VERSION}")
     args = get_args(sys.argv[1:])
     Chatbot = get_chat_bot(name= args.bot)
     chat = Chatbot(
@@ -140,15 +146,12 @@ async def main():
     # chat.load_test()
     if args.execute == 'imsg':
         sync_imsg(chat= chat, args = args)
-    elif args.execute == 'wecomserver':
-        log.info("Running FastAPI WeCom server")
-        await run_server()
-    elif args.execute == 'wecomsrv_callback':
+    elif args.execute == 'srv_callback':
         log.info(f"Running as server callback")
         anwser(chat, args)
-    elif args.execute == 'webserver':
+    elif args.execute == 'server':
         log.info(f"Running FastAPI server as WEB server")
-        await run_web_server(chat_= chat)
+        await run_server(port = args.port)
             
 
 
@@ -156,7 +159,7 @@ if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        log.info("\nExiting...")
+        log.info("\nKeyboardInterrupted, exiting...")
     except Exception as e:
         log.exception(e)
     finally:

@@ -1,28 +1,22 @@
 import json
 import logging
-import asyncio
 import hashlib
 from base64 import b64decode
 # import xml.etree.cElementTree as et
-import sys
-import pathlib
-sys.path.append(pathlib.Path(__file__).parent.parent.as_posix())
+# import sys
+# import pathlib
+# sys.path.append(pathlib.Path(__file__).parent.parent.as_posix())
 
-from fastapi import FastAPI, Response, Request, status
-from fastapi.responses import StreamingResponse
-import uvicorn
+from fastapi import Response, Request, status, APIRouter
 from Crypto.Cipher import AES
-from pydantic import BaseModel
 
-from settings import conf
 from server.utils import aget, XMLParse
 from library.utils import CFG
 from library.db import DB
-from library.WeCom.WXBizMsgCrypt3 import WXBizMsgCrypt as WeComCrypt
-from AIGC.ChatGPT import Chatbot
 
 log = logging.getLogger('app.server')
-app = FastAPI()
+# app = FastAPI(root_path='/chat')
+router = APIRouter()
 
 
 def msg_valid(signature: str, *args) -> bool:
@@ -83,7 +77,7 @@ def msg_b64_decrypt(encryped_text_b64: str, encoding_aes_key: str) -> dict:
 # def msg_encrypt_b64(reply_msg: str, timestamp: str, nonce: str, )
 
 # 验证企业微信的URL有效性
-@app.get('/recvWeComMsg')
+@router.get('/recvMsg')
 async def recvWeComMsg(request: Request, response: Response, msg_signature: str = '', timestamp: str = '', nonce: str = '', echostr: str = ''):
     log.debug('routing to recvWeComMsg')
     log.debug(f"{msg_signature=}, {timestamp=}, {nonce=}, {echostr=}")   
@@ -103,7 +97,7 @@ async def recvWeComMsg(request: Request, response: Response, msg_signature: str 
 def reply_msg(msg: str):
     return f"您刚刚发送消息: {msg}"
     
-@app.post('/recvWeComMsg', status_code=200)
+@router.post('/recvMsg', status_code=200)
 async def post_recvWeComMsg(request: Request, response: Response, msg_signature: str = '', timestamp: str = '', nonce: str = '', ):
     """接收企业微信用户发送给智远机器人的消息，并且设置回调函数
     企业微信用户发送消息时
@@ -202,85 +196,9 @@ async def post_recvWeComMsg(request: Request, response: Response, msg_signature:
         return "Invalid signature"
     
 
-@app.get('/wecom/accesstoken', status_code=200)
+@router.get('/accesstoken', status_code=200)
 async def get_access_token():
     url = CFG.C['WeCom']['URL']['ACCTK'] % (CFG.C['WeCom']['CorpID'], CFG.C['WeCom']['Secret'])
     res = await aget(url, verify_ssl=False)
     return await res.json()
 
-
-chat: Chatbot = None # type: ignore
-class UserContent(BaseModel):
-    userName: str = 'user1'
-    content: str = '你好'
-    accessToken: str = 'testToken202304041811'
-
-@app.post("/api/testgpt")
-async def test_chatGPT(data: UserContent):
-    """ChatGPT web service test api
-    body: 
-        - accessToken: token
-        userName: user1
-        content: string
-
-    Args:
-        request (Request): _description_
-        response (Response): _description_
-    """
-    log.debug(f"data: {data}")
-    log.debug(f"Received request from {data.userName}")
-    log.debug(f"Content: {data.content}")
-    log.debug(f"accessToken: {data.accessToken}")
-    stream_res = chat.ask_stream(prompt=data.content)
-    return StreamingResponse(stream_res, 200)
-
-@app.post("/api/test")
-@app.get("/api/test")
-async def test_status(request: Request, response: Response):
-    """
-    Test if server alive
-    """
-    body = await request.body()
-    params = request.query_params
-    response.status_code = status.HTTP_200_OK
-    return {'body': body, 'params': params}
-
-async def run_server():
-    log.debug("Running server")
-    # asyncio.gather(uvicorn.run(
-    #     app,
-    #     host=CFG.C['SERVER']['IP'],
-    #     port=8002,
-    #     # port=CFG.C['SERVER']['PORT'],
-    #     loop='asyncio'
-    # ))
-    config = uvicorn.Config(
-        app, 
-        host=CFG.C['SERVER']['IP'],
-        # port=8003,
-        port=CFG.C['SERVER']['PORT'],
-        # reload=True,
-        # reload_dirs=pathlib.Path(__file__).parent.parent.as_posix()
-        )
-    server = uvicorn.Server(config)
-    await server.serve()
-
-
-async def run_web_server(chat_: Chatbot):
-    global chat
-    chat = chat_
-    log.debug(f"Running web server")
-    config = uvicorn.Config(
-        app, 
-        host=CFG.C['WebServer']['IP'],
-        # port=8003,
-        port=CFG.C['WebServer']['PORT'],
-        # reload=True,
-        # reload_dirs=pathlib.Path(__file__).parent.parent.as_posix()
-        )
-    server = uvicorn.Server(config)
-    await server.serve()
-
-
-if __name__ == '__main__':
-    asyncio.run(run_server())

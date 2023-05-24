@@ -19,7 +19,7 @@ def get_filtered_keys_from_object(obj: object, *keys: str) -> Set[str]:
     :return: List of class keys.
     """
     class_keys = obj.__dict__.keys()
-    log.debug(f"{class_keys=}")
+    # log.debug(f"{class_keys=}")
     if not keys:
         return set(class_keys)
 

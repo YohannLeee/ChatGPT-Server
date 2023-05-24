@@ -3,21 +3,23 @@ import json
 import logging
 import os
 import sys
+import time
 import pathlib
-sys.path.append(
-    pathlib.Path(__file__).parent.parent.as_posix()
-)
-from typing import AsyncGenerator, Dict, Generator, Text, Tuple
+# sys.path.append(
+#     pathlib.Path(__file__).parent.parent.as_posix()
+# )
+from typing import AsyncGenerator, Generator
+import uuid
 
-import openai
 import requests
 import tiktoken
 import aiohttp
 
 from library.utils import get_filtered_keys_from_object, CFG
-from settings import conf
+from library.schemas import BaseAnwser, BaseQuestion
+from database import BaseAnwserDatabase
+import exceptions
 
-# openai.api_key = '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'
 log = logging.getLogger("app.chat")
 
 class Chatbot:
@@ -25,13 +27,28 @@ class Chatbot:
     Official ChatGPT API
     excerpt from https://github.com/acheong08/ChatGPT.git
     """
+    _instance = None
+    _init_args = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._init_args = (args, kwargs)
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    @classmethod
+    def get_instance(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._init_args = (args, kwargs)
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
     def __init__(
         self,
         api_key: str,
         engine: str = os.environ.get("GPT_ENGINE") or "gpt-3.5-turbo",
         proxy: str = '',
-        max_tokens: int = 3000,
+        max_tokens: int = 4000,
         temperature: float = 0.5,
         top_p: float = 1.0,
         presence_penalty: float = 0.0,
@@ -43,6 +60,8 @@ class Chatbot:
         """
         Initialize Chatbot with API key (from https://platform.openai.com/account/api-keys)
         """
+        log.debug("Calling __init__ method")
+        
         if not api_key:
             api_key = CFG.C['ChatGPT']['API_KEY']
 
@@ -74,7 +93,7 @@ class Chatbot:
 
         if self.get_token_count("default") > self.max_tokens:
             raise Exception("System prompt is too long")
-        self.load(CFG.C['ChatGPT']['CONF_FP'], 'not', 'api_key')
+        self.load(CFG.C['ChatGPT']['CONF_FP'], 'not', 'api_key', 'max_tokens')
 
     def add_to_conversation(
         self,
@@ -89,6 +108,8 @@ class Chatbot:
             self.reset(convo_id)
             # self.conversation[convo_id]['history'] = [dict(role= role, content= message)]
         self.conversation[convo_id]['history'].append(dict(role= role, content= message))
+
+    # async def store_in_db(self, session, approach)
 
     def __truncate_conversation(self, convo_id: str = "default") -> None:
         """
@@ -185,7 +206,8 @@ class Chatbot:
                 )
                 break
             except requests.exceptions.ProxyError as e:
-                log.exception(e)
+                # log.exception(e)
+                raise exceptions.ProxyError() from e
                 # log.info(f"request dict: {request_dict}")
             except Exception as e:
                 log.exception(e)
@@ -198,6 +220,10 @@ class Chatbot:
         match response.status_code:
             case 401:
                 raise Exception(f"Error: {response.status_code} {response.reason} {response.text}\n API_KEY: {kwargs.get('api_key', self.api_key)}")
+            case 409:
+                raise exceptions.ModelOverloaded(
+                    reason= response.json()['error']['message']
+                )
             case 200:
                 pass
             case _:
@@ -206,6 +232,7 @@ class Chatbot:
             ) 
             
         if _stream:
+            log.debug("streaming output")
             response_role: str = ''
             full_response: str = ""
             # log.debug(f"{response.text=}")
@@ -228,9 +255,11 @@ class Chatbot:
                 if "content" in delta:
                     content = delta["content"]
                     full_response += content
+                    # log.debug(f"yield {content=}")
                     yield content
             # log.debug(f"{response.text=}")
         else:
+            log.debug("full block output")
             resp: dict = json.loads(response.content)
             # TODO save usage info
             usage: dict = resp['usage']
@@ -244,7 +273,7 @@ class Chatbot:
         if not _stream:
             yield full_response
 
-    async def aask_stream(
+    async def async_ask_stream(
         self,
         prompt: str,
         role: str = "user",
@@ -254,11 +283,12 @@ class Chatbot:
         """
         Ask a question
         """
+        _stream = kwargs.get('stream', True)
+        _approach = kwargs.get("approach", "Unknown")
         # Make conversation if it doesn't exist
         if convo_id not in self.conversation:
             self.new_user(convo_id=convo_id, system_prompt=self.system_prompt)
         self.add_to_conversation(prompt, "user", convo_id=convo_id)
-        _stream = kwargs.get('stream', True)
         self.__truncate_conversation(convo_id=convo_id)
         payload = {
                 "model": self.engine,
@@ -282,6 +312,8 @@ class Chatbot:
         log.debug(f"Request payload: {payload}")
         # Get response
         try_index = 0
+        response_role: str = ''
+        full_response: str = ""
         response: aiohttp.ClientResponse
         while try_index < 3:
             try:
@@ -291,10 +323,31 @@ class Chatbot:
                         headers={"Authorization": f"Bearer {kwargs.get('api_key', self.api_key)}"},
                         json= payload,
                         ssl = False,
-                        proxy = self.proxy
+                        proxy = self.proxy,
                     )
+                    async for line in response.content:
+                        line = line.decode("utf-8").strip()[6:]
+                        if not line:
+                            continue
+                        if line == "[DONE]":
+                            break
+                        resp: dict = json.loads(line)
+                        choices = resp.get("choices") # type: ignore
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta")
+                        if not delta:
+                            continue
+                        if "role" in delta:
+                            response_role = delta["role"]
+                        if "content" in delta:
+                            content = delta["content"]
+                            full_response += content
+                            # log.debug(f"yield {content=}")
+                            yield content
+                    print(f"Iter finished")
                 break
-            except requests.exceptions.ProxyError as e:
+            except (aiohttp.ClientProxyConnectionError, aiohttp.ClientHttpProxyError) as e:
                 log.exception(e)
                 log.info(f"Proxy: {self.proxy}")
             finally:
@@ -311,37 +364,22 @@ class Chatbot:
             case _:
                raise Exception(
                 f"Error: {response.status} {response.reason} {await response.text()}",
-            ) 
+            )
+
+        if kwargs.get("question_dict"):
+            question_dict: BaseQuestion = kwargs.get("question_dict")
+            anwser_db: BaseAnwserDatabase = kwargs.get("anwser_db")
+            anwser_dict = BaseAnwser(
+                content= full_response,
+                user_id= question_dict.user_id,
+                question_id=question_dict.id,
+                approach = question_dict.approach,
+                usage= 0,
+                timestamp= int(time.time())
+            )
+            # log.debug(anwser_dict.json())
+            await anwser_db.create(anwser_dict.dict())
             
-
-        response_role: str = ''
-        full_response: str = ""
-        # log.debug(f"{response.text=}")
-        # async for line, _ in response.content.iter_chunks():
-        async for line in response.content:
-            print(f"{line=}")
-            if not line or not line.startswith(b'data: '):
-                continue
-            # Remove "data: "
-            line = line.decode("utf-8")[6:]
-            if line == "[DONE]":
-                break
-            # print(f"{line=}\n{response.headers=}")
-            resp: dict = json.loads(line)
-            choices = resp.get("choices") # type: ignore
-            if not choices:
-                continue
-            delta = choices[0].get("delta")
-            if not delta:
-                continue
-            if "role" in delta:
-                response_role = delta["role"]
-            if "content" in delta:
-                content = delta["content"]
-                full_response += content
-                print(f"Yielding {content=}")
-                yield content
-
         if self.conversation[convo_id]['use_history']:
             self.add_to_conversation(full_response, response_role, convo_id=convo_id)
 
@@ -544,10 +582,92 @@ class Chatbot:
         log.debug(self.conversation['default']['history'])
 
     def __del__(self) -> None:
-        self.save(CFG.C['ChatGPT']['CONF_FP'])
+        try:
+            self.save(CFG.C['ChatGPT']['CONF_FP'])
+        except NameError:
+            pass
 
     async def __aexit__(self) -> None:
         print("aexit")
+
+    def ask_stream2(
+        self,
+        prompt: str,
+        role: str = "user",
+        convo_id: str = "default",
+        **kwargs,
+    ) -> Generator:
+        """
+        Ask a question
+        """
+        # Make conversation if it doesn't exist
+        if convo_id not in self.conversation:
+            self.new_user(convo_id=convo_id, system_prompt=self.system_prompt)
+        self.add_to_conversation(prompt, "user", convo_id=convo_id)
+        _stream = kwargs.get('stream', True)
+        self.__truncate_conversation(convo_id=convo_id)
+        payload = {
+                "model": self.engine,
+                "messages": self.conversation[convo_id]['history'],
+                "stream": _stream,
+                # kwargs
+                "temperature": kwargs.get("temperature", self.temperature),
+                "top_p": kwargs.get("top_p", self.top_p),
+                "presence_penalty": kwargs.get(
+                    "presence_penalty",
+                    self.presence_penalty,
+                ),
+                "frequency_penalty": kwargs.get(
+                    "frequency_penalty",
+                    self.frequency_penalty,
+                ),
+                "n": kwargs.get("n", self.reply_count),
+                "user": role,
+                "max_tokens": self.get_max_tokens(convo_id=convo_id),
+            }
+        log.debug(f"Request payload: {payload}")
+        request_dict = dict(
+            headers = {"Authorization": f"Bearer {kwargs.get('api_key', self.api_key)}"},
+            json= payload,
+            stream = _stream,
+            verify = False,
+        )
+        if self.proxy:
+            request_dict['proxies'] = {"http": self.proxy, "https": self.proxy,}
+        # Get response
+        try_index = 0
+        while try_index < 3:
+            try:
+                response = requests.post(
+                    os.environ.get("API_URL") or "https://api.openai.com/v1/chat/completions",
+                    **request_dict
+                )
+                break
+            except requests.exceptions.ProxyError as e:
+                # log.exception(e)
+                raise exceptions.ProxyError() from e
+                # log.info(f"request dict: {request_dict}")
+            except Exception as e:
+                log.exception(e)
+            finally:
+                try_index += 1
+                log.info(f"request dict: {request_dict}")
+                if try_index == 3:
+                    return f"Error"
+            
+        log.debug("streaming output")
+        response_role: str = ''
+        full_response: str = ""
+        # log.debug(f"{response.text=}")
+        for line in response.iter_lines():
+            if not line:
+                continue
+            # Remove "data: "
+            line = line.decode("utf-8")[6:]
+            print(f"{line=}")
+            if line == "[DONE]":
+                break
+        print("Stream finished")
 
 
 async def main():
@@ -581,6 +701,12 @@ async def main():
         print(f"Q: {question[msg_id]}\nA: {cont}")
         print()
 
+async def async_ask_stream():
+    chat_ = Chatbot(api_key='')
+    async for cont in chat_.async_ask_stream("hello, please introduce yourself"):
+        sys.stdout.write(cont)
+        sys.stdout.flush()
+    # chat_.ask_stream2("hi")
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    asyncio.run(async_ask_stream())
